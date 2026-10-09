@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { createApi, apiError } from './api.js';
 import { firebaseSettings, firebaseSetupError, publicFirebaseConfig, verifyFirebase } from './firebase-auth.js';
+import { driveApi, driveCallback } from './drive.js';
 
 function secure(response) {
   const headers = new Headers(response.headers);
@@ -48,6 +49,7 @@ export function createWorker({ authorize = verifyFirebase, providerFactory = env
       }
       // External links may open the public login page. Only API requests
       // must originate from the site itself.
+      if (url.pathname === '/api/drive/callback') return secure(await driveCallback(request, env));
       const origin = request.headers.get('origin');
       if ((origin && origin !== url.origin) || request.headers.get('sec-fetch-site') === 'cross-site')
         return failure(403, '同じサイトからアクセスしてください。');
@@ -58,6 +60,7 @@ export function createWorker({ authorize = verifyFirebase, providerFactory = env
       if (!firebaseSettings(env)) return failure(503, 'Firebaseログインの設定が未完了です。管理者に確認してください。');
       if (url.origin !== env.PUBLIC_ORIGIN) return failure(403, '設定された公開URLからアクセスしてください。');
       if (!await authorize(request, env)) return failure(401, 'ログインの期限が切れているか、このGoogleアカウントには利用権限がありません。');
+      if (url.pathname.startsWith('/api/drive/')) return secure(await driveApi(request, env, request.method === 'POST' ? await readBody(request) : undefined));
       if (url.pathname === '/api/session' && request.method === 'GET')
         return secure(Response.json({ configured: !!env.GEMINI_API_KEY, authenticated: true }));
       const provider = env.GEMINI_API_KEY ? providerFactory(env) : null;

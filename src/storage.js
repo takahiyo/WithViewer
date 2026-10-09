@@ -29,3 +29,4 @@ export const getAudio = id => operation('audio', 'readonly', s => s.get(id));
 export const meetingAudio = id => operation('audio', 'readonly', s => s.index('meetingId').getAll(id));
 export const saveFrame = frame => operation('frames', 'readwrite', s => s.put(frame));
 export const getFrame = id => operation('frames', 'readonly', s => s.get(id));
+export const meetingFrames = id => operation('frames', 'readonly', s => s.getAll()).then(frames => frames.filter(f => f.meetingId === id));

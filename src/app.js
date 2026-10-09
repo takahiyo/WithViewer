@@ -9,6 +9,7 @@ import { safeMeetingName, imageFiles, zipImages } from './image-export.js';
 import { retryDelay } from './transcription-retry.js';
 import { MINUTES_FORMAT, minutesBatches, minutesFingerprint, minutesDocument } from './minutes.js';
 import { minutesBody, minutesHtml, MINUTES_CSS } from './minutes-layout.js';
+import { createDriveBackup } from './drive.js';
 
 const $ = id => document.getElementById(id);
 let meeting, meetings = [], config = { configured: false }, recorder = null, recording = false, recordBusy = false;
@@ -17,15 +18,17 @@ let summaryBusy = false, chatBusy = false;
 let imageExportBusy = false;
 let minutesBusy = false, retryCancel = null, retryStatus = '', pauseReason = '';
 let lastMinutesView = '';
+const drive = createDriveBackup({ currentMeeting: () => meeting, saveTarget: persist, canConfigure: () => !recording && !recordBusy, onBusy: () => renderControls() });
 const reportStyle = document.createElement('style'); reportStyle.textContent = MINUTES_CSS; document.head.append(reportStyle);
 let transcriptionPaused = false;
 const PAUSED_TRANSCRIPTION = 'API上限のため文字起こしを一時停止しています。録音音声は保存しています。';
 const video = document.createElement('video'); video.muted = true; video.playsInline = true;
 let latestFrame = null;
 function notice(message) { $('notice').textContent = message; $('notice').hidden = !message; }
-function persist() {
-  const snapshot = structuredClone(meeting);
+function persist(target = meeting, scheduleDrive = true) {
+  const snapshot = structuredClone(target);
   writes = writes.then(() => saveMeeting(snapshot)).catch(() => notice('ブラウザーへの保存に失敗しました。空き容量を確認し、記録を書き出してください。'));
+  if (scheduleDrive) writes.then(() => { if (!recording && !recordBusy) drive.schedule(target); });
   return writes;
 }
 const live = new Consultation({ changed: () => { render(); persist(); },
@@ -48,9 +51,9 @@ const vision = new VisualObserver({
 function renderControls() {
   $('download-images').disabled = imageExportBusy || !meeting?.visuals?.length;
   $('download-images').textContent = imageExportBusy ? '画像をまとめています…' : '画像を保存（ZIP）';
-  const busy = recording || recordBusy || processing || queue.length || live.state !== 'idle' || summaryBusy || chatBusy || vision.busy || minutesBusy;
+  const busy = recording || recordBusy || processing || queue.length || live.state !== 'idle' || summaryBusy || chatBusy || vision.busy || minutesBusy || drive.busy;
   $('new').disabled = !!busy; $('meetings').disabled = !!busy; $('import').disabled = !!busy; $('import-button').disabled = !!busy;
-  $('record').disabled = recording || recordBusy || minutesBusy; $('stop-record').disabled = !recording || recordBusy;
+  $('record').disabled = recording || recordBusy || minutesBusy || drive.busy; $('stop-record').disabled = !recording || recordBusy;
   $('title').disabled = minutesBusy; $('note-form').querySelector('button').disabled = minutesBusy;
   $('talk').disabled = !config.configured || live.state !== 'idle' || chatBusy; $('stop-talk').disabled = live.state !== 'active';
   $('send-chat').disabled = !config.configured || chatBusy || ['connecting', 'stopping'].includes(live.state);
@@ -71,6 +74,7 @@ function renderControls() {
   $('download-minutes').disabled = minutesBusy || imageExportBusy || !meeting?.minutes;
   $('resume-transcription').hidden = !transcriptionPaused;
   $('resume-transcription').disabled = processing;
+  drive.render();
   $('record-time').textContent = timeLabel(savedSeconds);
   $('vision-enabled').disabled = !config.configured;
   $('read-frame').disabled = !config.configured || !vision.available || vision.busy;
@@ -195,6 +199,7 @@ async function startRecording() {
     if (!stream.getAudioTracks().length) throw new Error('音声が共有されていません。会議タブを選び、「タブの音声を共有」を有効にしてください。');
     video.srcObject = stream;
     await video.play();
+    delete meeting.endedAt;
     const offset = savedSeconds;
     recorder = await capture(stream, (samples, rate) => {
       if (!sampleChunks) sampleChunks = new SampleChunks(rate * 10, (chunk, start) => {
@@ -230,7 +235,7 @@ async function stopRecording() {
   try {
     await recorder.stop(); sampleChunks?.flush(); await ingest;
     meeting.endedAt = new Date().toISOString(); await persist();
-  } finally { video.srcObject = null; sampleChunks = null; recorder = null; recording = false; recordBusy = false; render(); }
+  } finally { video.srcObject = null; sampleChunks = null; recorder = null; recording = false; recordBusy = false; render(); drive.schedule(meeting); }
 }
 
 $('record').onclick = startRecording; $('stop-record').onclick = stopRecording;
@@ -382,7 +387,7 @@ $('download-audio').onclick = async () => {
   } catch (error) { notice(error.message); }
 };
 window.addEventListener('beforeunload', event => {
-  if (recording || recordBusy || processing || live.state !== 'idle' || chatBusy || vision.busy || minutesBusy) { event.preventDefault(); event.returnValue = ''; }
+  if (recording || recordBusy || processing || live.state !== 'idle' || chatBusy || vision.busy || minutesBusy || drive.busy || drive.pending) { event.preventDefault(); event.returnValue = ''; }
 });
 
 async function initialize() {
@@ -393,9 +398,10 @@ async function initialize() {
       if (!config.firebase || config.setupError) { $('google-login').disabled = true; $('login-status').textContent = config.setupError || 'Firebaseの設定を確認してください。'; return; }
       const { prepareGoogleLogin } = await import('./auth.js');
       const session = await prepareGoogleLogin(config.firebase, { loginButton: $('google-login'), logoutButton: $('cloud-logout'),
-        status: $('login-status'), beforeLogout: async () => { transcriptionPaused = true; retryCancel?.(); await live.stop(); await stopRecording(); await ingest; await writes; } });
+        status: $('login-status'), beforeLogout: async () => { transcriptionPaused = true; retryCancel?.(); await live.stop(); await stopRecording(); await ingest; await writes; await drive.finish(meeting); } });
       if (!session) return;
       config.configured = session.configured; $('app-main').hidden = false; $('login-panel').hidden = true;
+      await drive.initialize();
     }
     $('connection').textContent = config.configured ? 'Gemini 接続準備済み' : 'APIキー未設定';
     $('connection').className = `badge ${config.configured ? 'active' : 'warn'}`;
