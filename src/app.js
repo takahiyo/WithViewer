@@ -1,4 +1,5 @@
 import './style.css';
+import './workspace-navigation.js';
 import { newMeeting, addObservation, addConsultation, textChatPayload, evidence, searchMeeting, timeLabel, validateBackup } from './core.js';
 import { saveMeeting, listMeetings, saveAudio, getAudio, meetingAudio, saveFrame, getFrame, restoreArchive } from './storage.js';
 import { capture, SampleChunks, pcm16, wav, base64 } from './audio.js';

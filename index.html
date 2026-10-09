@@ -1,22 +1,23 @@
 <!doctype html>
 <html lang="ja">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>WithViewer — 静かな同席者</title></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>WithViewer — 静かな同席者</title><link rel="stylesheet" href="/theme.css"></head>
 <body>
   <header><a class="brand" href="/">WithViewer<span>静かな同席者</span></a><span id="connection" class="badge">接続を確認中</span><button id="cloud-logout" class="text-button" hidden>ログアウト</button></header>
   <section id="login-panel" class="card" hidden><p class="eyebrow">静かな同席者</p><h1>Googleアカウントで<br>ログイン</h1><p>ログインすると、会議の記録や同席者への相談を始められます。</p><button id="google-login">Googleでログイン</button><p id="login-status" role="status"></p></section>
   <main id="app-main">
+    <nav class="workspace-nav" aria-label="会議の操作"><a href="#meeting-setup">会議</a><a href="#record-section">記録</a><a href="#consult-section">相談</a><a href="#minutes-section">議事録</a><a href="#search-section">検索</a><button id="settings-open" class="secondary" aria-expanded="false" aria-controls="settings-panel">設定</button></nav>
     <section class="intro"><p class="eyebrow">一緒に聞く。声でも、文字でも相談する。</p><h1>会議のそばに、<br>もうひとつの視点を。</h1><p>普段は静かに記録。気になることがあれば、声やチャットで相談してください。</p></section>
     <div id="notice" role="alert" hidden></div>
-    <section class="setup card">
+    <section id="meeting-setup" class="setup card" tabindex="-1">
       <label>保存した会議<select id="meetings" aria-label="保存した会議"></select></label>
       <label class="title-field">会議の名前<input id="title" maxlength="120" value="新しい会議"></label>
       <button id="new" class="secondary">新しい会議</button>
       <button id="export" class="secondary">記録を書き出す</button>
       <button id="import-button" class="secondary">記録を読み込む</button><input id="import" type="file" accept="application/json,.json,application/zip,.zip" hidden>
     </section>
-    <details class="card drive-settings"><summary>Google Driveへの自動保存</summary><p>会議一式（記録・相談履歴・音声・スクショ・作成済み議事録）を指定フォルダへ保存します。</p><div class="actions"><button id="drive-connect" class="secondary" disabled>Google Driveを接続</button><button id="drive-folder" class="secondary" disabled>保存先フォルダを選ぶ</button><button id="drive-disconnect" class="text-button" disabled>連携を解除</button></div><p>保存先：<span id="drive-folder-name">未選択</span></p><div class="actions"><label>新しいフォルダ名<input id="drive-new-folder-name" maxlength="200" placeholder="例：WithViewer 会議記録"></label><label>作成する場所<select id="drive-new-folder-parent"><option value="root">マイドライブ直下</option><option value="selected">現在の保存先フォルダ内</option></select></label><button id="drive-create-folder" class="secondary" disabled>作成して保存先にする</button></div><label><input type="checkbox" id="drive-auto" disabled>会議終了時に自動保存する</label><button id="drive-save" class="secondary" disabled>今すぐ保存</button><p id="drive-status" role="status">公開版のGoogleログイン後に設定できます。</p><p class="hint">自動保存はこのブラウザーの設定です。保存完了までページを開いてください。清書は「議事録を作成・更新」で作成します。</p></details>
+    <aside id="settings-panel" class="settings-panel" aria-labelledby="settings-title" hidden><div class="settings-heading"><h2 id="settings-title">設定</h2><button id="settings-close" class="secondary" aria-label="設定を閉じる">閉じる</button></div><section class="drive-settings"><h3>Google Driveへの自動保存</h3><p>会議一式（記録・相談履歴・音声・スクショ・作成済み議事録）を指定フォルダへ保存します。</p><div class="actions"><button id="drive-connect" class="secondary" disabled>Google Driveを接続</button><button id="drive-folder" class="secondary" disabled>保存先フォルダを選ぶ</button><button id="drive-disconnect" class="text-button" disabled>連携を解除</button></div><p>保存先：<span id="drive-folder-name">未選択</span></p><div class="actions"><label>新しいフォルダ名<input id="drive-new-folder-name" maxlength="200" placeholder="例：WithViewer 会議記録"></label><label>作成する場所<select id="drive-new-folder-parent"><option value="root">マイドライブ直下</option><option value="selected">現在の保存先フォルダ内</option></select></label><button id="drive-create-folder" class="secondary" disabled>作成して保存先にする</button></div><label><input type="checkbox" id="drive-auto" disabled>会議終了時に自動保存する</label><button id="drive-save" class="secondary" disabled>今すぐ保存</button><p id="drive-status" role="status">公開版のGoogleログイン後に設定できます。</p><p class="hint">自動保存はこのブラウザーの設定です。保存完了までページを開いてください。清書は「議事録を作成・更新」で作成します。</p></section></aside>
     <div class="panels">
-      <section class="card observation">
+      <section id="record-section" class="card observation" tabindex="-1">
         <div class="section-heading"><div><p class="eyebrow">OBSERVE</p><h2>会議を見聞きする</h2></div><span id="record-badge" class="badge">待機中</span></div>
         <p class="description">会議・動画のタブを選び、「タブの音声を共有」を有効にしてください。</p>
         <p class="hint">会議タブだけを共有し、ヘッドホンを使ってください。映像は下のスイッチで対象にできます。</p>
@@ -39,7 +40,7 @@
         <details><summary>会議メモを追加</summary><p class="hint">発言を手入力して対話の文脈を確認できます。入力元は会議メモとして表示します。</p><form id="note-form"><textarea id="note" aria-label="会議メモ" placeholder="会議で確認できた発言・内容"></textarea><button class="secondary">会議記録に追加</button></form></details>
         <div class="section-heading small"><h3>途中要約</h3><button id="summarize" class="text-button">要約する</button></div><p id="summary" class="summary">会議記録がたまったら要約できます。</p>
       </section>
-      <section class="card consultation">
+      <section id="consult-section" class="card consultation" tabindex="-1">
         <div class="section-heading"><div><p class="eyebrow">TALK TOGETHER</p><h2>同席者に相談する</h2></div><span id="talk-badge" class="badge">静かに同席</span></div>
         <div class="voice-orb" aria-hidden="true"><div></div><span>WV</span></div>
         <p id="talk-status" class="talk-status" role="status">静かな同席状態です。</p>
@@ -57,8 +58,8 @@
         </form>
       </section>
     </div>
-    <section class="card minutes-panel"><div class="section-heading"><h2>会議の議事録</h2><div class="actions"><button id="create-minutes" disabled>議事録を作成・更新</button><button id="download-minutes" class="secondary" disabled>議事録と画像を保存（ZIP）</button></div></div><p class="hint">清書を読み、必要に応じて音声原本とスクショを確認できます。清書の作成にはGeminiの利用料金がかかります。ZIPは展開してHTMLを開いてください。</p><div id="minutes" class="minutes-report"></div></section>
-    <section class="card search"><h2>以前の発言を探す</h2><form id="search-form"><input id="query" aria-label="会議記録の検索語" placeholder="発言に含まれる語句"><button class="secondary">検索</button></form><div id="results"></div></section>
+    <section id="minutes-section" class="card minutes-panel" tabindex="-1"><div class="section-heading"><h2>会議の議事録</h2><div class="actions"><button id="create-minutes" disabled>議事録を作成・更新</button><button id="download-minutes" class="secondary" disabled>議事録と画像を保存（ZIP）</button></div></div><p class="hint">清書を読み、必要に応じて音声原本とスクショを確認できます。清書の作成にはGeminiの利用料金がかかります。ZIPは展開してHTMLを開いてください。</p><div id="minutes" class="minutes-report" role="region" aria-label="議事録の閲覧" tabindex="0"></div></section>
+    <section id="search-section" class="card search" tabindex="-1"><h2>以前の発言を探す</h2><form id="search-form"><input id="query" aria-label="会議記録の検索語" placeholder="発言に含まれる語句"><button class="secondary">検索</button></form><div id="results"></div></section>
     <footer>記録はこのブラウザーに保存されます。文字起こし・映像の読取り・要約・音声／テキスト相談の利用時は対象の内容をGeminiへ送信します。<br>AIの利用は利用枠に応じて費用が発生します。保存した会議は終了後も相談できます。</footer>
   </main>
   <nav class="legal-links" aria-label="運営情報"><a href="/privacy.html">プライバシーポリシー</a> · <a href="/terms.html">利用規約</a> · 運営：Flateight</nav>

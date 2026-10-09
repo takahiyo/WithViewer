@@ -1,0 +1,3 @@
+:root{--wv-ink:#233a36;--wv-muted:#61756c;--wv-paper:#fff;--wv-background:#f5f7f4;--wv-line:#dde5dc;--wv-accent:#285b4e;--wv-radius:12px;font-family:"Segoe UI","Yu Gothic UI",Meiryo,sans-serif;color:var(--wv-ink);background:var(--wv-background);line-height:1.7}
+*{box-sizing:border-box}
+a:focus-visible,button:focus-visible{outline:3px solid #ba8b45;outline-offset:3px}
