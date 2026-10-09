@@ -12,6 +12,7 @@ import { MINUTES_FORMAT, minutesBatches, minutesFingerprint, minutesDocument } f
 import { minutesBody, minutesHtml, MINUTES_CSS } from './minutes-layout.js';
 import { createDriveBackup } from './drive.js';
 import { importMeetingArchive, ARCHIVE_LIMIT } from './meeting-import.js';
+import { searchCleanCopy, jumpToSearchTarget } from './meeting-search.js';
 
 const $ = id => document.getElementById(id);
 let meeting, meetings = [], config = { configured: false }, recorder = null, recording = false, recordBusy = false;
@@ -100,6 +101,7 @@ function render() {
   for (const s of meeting.segments) {
     const label = `${timeLabel(s.start)}–${timeLabel(s.end)} · ${s.kind === 'note' ? '会議メモ（手入力）' : '会議音声'}`;
     const node = entry($('segments'), s.status === 'done' ? s.text || '（発言なし）' : s.status === 'pending' ? '文字起こし待ち…' : '文字起こし未完了。音声が保存されていれば再試行できます。', label, s.status === 'failed' ? 'failed' : '');
+    node.dataset.segment = s.id;
     if (s.status === 'failed' && s.error) { const reason = document.createElement('p'); reason.textContent = s.error; node.append(reason); }
     if (s.status === 'failed' && config.configured && !s.kind) {
       const retry = document.createElement('button'); retry.className = 'text-button'; retry.textContent = '再試行';
@@ -300,9 +302,39 @@ $('note-form').onsubmit = async event => {
 };
 $('search-form').onsubmit = event => {
   event.preventDefault(); $('results').replaceChildren();
-  const results = searchMeeting(meeting, $('query').value);
-  for (const s of results) entry($('results'), s.text, `${timeLabel(s.start)}–${timeLabel(s.end)} · 会議記録`);
+  const query = $('query').value.trim();
+  if (!query) { empty($('results'), '検索する語句を入力してください。'); return; }
+  const source = meeting.id;
+  const results = searchMeeting(meeting, query), paragraphs = searchCleanCopy(meeting.minutes, query);
+  function heading(text) { const h = document.createElement('h3'); h.textContent = text; $('results').append(h); }
+  function jumpButton(node, label, action) {
+    const button = document.createElement('button'); button.className = 'secondary search-jump'; button.textContent = label;
+    button.onclick = () => {
+      if (source !== meeting.id) return;
+      if (!action()) notice('該当箇所が更新されました。もう一度検索してください。');
+    };
+    node.append(document.createElement('br'), button);
+  }
+  heading('音声原本・会議メモ');
+  for (const s of results) {
+    const node = entry($('results'), s.text, `${timeLabel(s.start)}–${timeLabel(s.end)} · ${s.kind === 'note' ? '会議メモ（手入力）' : '音声原本'}`);
+    jumpButton(node, s.kind === 'note' ? '会議メモへ' : '原本へ', () => {
+      const original = [...$('minutes').querySelectorAll('[data-segment]')].find(el => el.dataset.segment === s.id);
+      const record = [...$('segments').querySelectorAll('[data-segment]')].find(el => el.dataset.segment === s.id);
+      return jumpToSearchTarget(original || record, original ? $('minutes-section') : $('record-section'));
+    });
+  }
   if (!results.length) empty($('results'), '一致する発言がありません。短い語句で試してください。');
+  heading('清書');
+  for (const p of paragraphs) {
+    const node = entry($('results'), p.text, `清書 · 段落 ${p.index + 1}`);
+    jumpButton(node, '清書へ', () => {
+      const target = document.getElementById(`report-paragraph-${p.index}`);
+      if (target?.textContent !== p.text) return false;
+      return jumpToSearchTarget(target, $('minutes-section'));
+    });
+  }
+  if (!paragraphs.length) empty($('results'), meeting.minutes ? '清書に一致する語句がありません。言い換えられている場合は、別の語句で検索してください。' : '清書はまだ作成されていません。原本へは移動できます。');
 };
 $('summarize').onclick = async () => {
   summaryBusy = true; renderControls();

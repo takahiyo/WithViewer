@@ -28,3 +28,4 @@
 @media(max-width:800px){.workspace-nav a{padding:9px 12px}.minutes-panel{padding:20px}#minutes{padding:0 4px 20px}.section-heading{flex-wrap:wrap}}
 @media(max-width:480px){.workspace-nav{gap:0;margin:0 -4px 20px}.workspace-nav a{font-size:13px;padding:9px 10px}.workspace-nav button{padding:8px 10px;font-size:13px}.intro h1{font-size:22px}.settings-panel{padding:0 20px 24px}.setup>label{width:100%}.setup select{max-width:none}.setup>button{flex:1;white-space:nowrap;padding:9px}.brand{font-size:20px}#minutes{max-height:65dvh}}
 @media print{.workspace-nav,.settings-panel{display:none!important}#minutes{max-height:none;overflow:visible}#minutes .minutes-nav{position:static}}
+.search-target{background:#fff5d9!important;outline:2px solid #c49a54!important;outline-offset:5px;border-radius:6px;scroll-margin-top:90px}.search-jump{margin-top:12px;font-size:13px;padding:7px 14px}#results>h3{margin:24px 0 12px}#results .entry{white-space:pre-wrap}
