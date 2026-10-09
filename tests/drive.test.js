@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { seal, unseal, driveApi, driveCallback } from '../cloudflare/drive.js';
 import { createWorker } from '../cloudflare/worker.js';
 import { meetingArchive } from '../src/meeting-archive.js';
-import { uploadArchive, writableFolder } from '../src/drive-upload.js';
+import { uploadArchive, writableFolder, createFolder } from '../src/drive-upload.js';
 
 const env = { GOOGLE_DRIVE_CLIENT_ID: '123-test.apps.googleusercontent.com', GOOGLE_DRIVE_CLIENT_SECRET: 'test-client-secret', GOOGLE_DRIVE_PICKER_API_KEY: 'test-picker-key', DRIVE_TOKEN_SECRET: 'test-encryption-key-at-least-32-characters', PUBLIC_ORIGIN: 'https://withviewer.pages.dev' };
 const jwt = `e30.${Buffer.from(JSON.stringify({ sub: 'user-1', email: 'owner@example.com' })).toString('base64url')}.signature`;
@@ -98,6 +98,22 @@ test('Driveの通信切断は保存位置を確認して再送し、受信済み
   };
   const result = await uploadArchive({ blob: new Blob([new Uint8Array(524288)]), name: '会議.zip', folder: 'folder', fileId: 'file', meetingId: 'meeting', token: 'access', fetcher, wait: async () => {} });
   assert.equal(result.id, 'file'); assert.deepEqual(ranges, ['bytes 0-524287/524288', 'bytes */524288', 'bytes 262144-524287/524288']);
+});
+test('Driveフォルダは名前と作成先を指定し、権限不足では作成しない', async () => {
+  const calls = [];
+  const fetcher = async (url, options) => {
+    calls.push({ url, options });
+    return options.method === 'POST' ? Response.json({ id: 'new-folder', name: '会議記録' }) : Response.json({ id: 'parent', name: '親', mimeType: 'application/vnd.google-apps.folder', capabilities: { canAddChildren: true } });
+  };
+  assert.deepEqual(await createFolder(' 会議記録 ', 'root', 'access', fetcher), { id: 'new-folder', name: '会議記録' });
+  assert.equal(calls.length, 1);
+  assert.deepEqual(JSON.parse(calls[0].options.body), { name: '会議記録', mimeType: 'application/vnd.google-apps.folder', parents: ['root'] });
+  calls.length = 0;
+  await createFolder('会議記録', 'parent', 'access', fetcher);
+  assert.equal(calls.length, 2); assert.deepEqual(JSON.parse(calls[1].options.body).parents, ['parent']);
+  calls.length = 0;
+  await assert.rejects(createFolder(' ', 'root', 'access', fetcher), /フォルダ名/); assert.equal(calls.length, 0);
+  await assert.rejects(createFolder('会議記録', 'parent', 'access', async () => Response.json({ mimeType: 'application/vnd.google-apps.folder', capabilities: { canAddChildren: false } })), /保存できません/);
 });
 test('再保存は同じ会議ファイルだけを更新し、無関係な既存ファイルや保存不可フォルダを拒否する', async () => {
   await assert.rejects(writableFolder('folder', 'access', async () => Response.json({ id: 'folder', mimeType: 'application/vnd.google-apps.folder', capabilities: { canAddChildren: false } })), /保存できません/);

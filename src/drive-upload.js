@@ -12,6 +12,17 @@ export async function writableFolder(id, token, fetcher = fetch) {
   if (folder.trashed || folder.mimeType !== 'application/vnd.google-apps.folder' || !folder.capabilities?.canAddChildren) throw new Error('このフォルダには保存できません。保存先を選び直してください。');
   return { id: folder.id, name: folder.name };
 }
+export async function createFolder(name, parent, token, fetcher = fetch) {
+  name = name.trim();
+  if (!name || name.length > 200) throw new Error('フォルダ名は1〜200文字で入力してください。');
+  if (parent !== 'root') await writableFolder(parent, token, fetcher);
+  const folder = await driveJson('?fields=id,name', token, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, mimeType: 'application/vnd.google-apps.folder', parents: [parent] })
+  }, fetcher);
+  if (!folder.id || !folder.name) throw new Error('作成したフォルダを確認できません。Google Driveで確認してください。');
+  return { id: folder.id, name: folder.name };
+}
 export async function uploadArchive({ blob, name, folder, fileId, meetingId, token, progress = () => {}, fetcher = fetch, wait = ms => new Promise(r => setTimeout(r, ms)) }) {
   let existing = false;
   try {

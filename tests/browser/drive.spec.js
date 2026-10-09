@@ -2,8 +2,32 @@ import { test, expect } from '@playwright/test';
 import { build } from 'esbuild';
 
 const bundle = (await build({ entryPoints: ['src/drive.js'], bundle: true, format: 'esm', write: false })).outputFiles[0].text;
+test('新規フォルダの作成成功後にだけ保存先を切り替え、失敗時は元の保存先を保持する', async ({ page }) => {
+  await page.route('**/drive-fixture', route => route.fulfill({ contentType: 'text/html', body: '<html><body><button id="drive-connect"></button><button id="drive-folder"></button><input id="drive-new-folder-name"><select id="drive-new-folder-parent"><option value="root">マイドライブ直下</option><option value="selected">保存先内</option></select><button id="drive-create-folder">作成</button><button id="drive-disconnect"></button><input id="drive-auto" type="checkbox"><button id="drive-save"></button><span id="drive-folder-name"></span><p id="drive-status"></p></body></html>' }));
+  await page.route('**/drive-fixture.js', route => route.fulfill({ contentType: 'text/javascript', body: bundle }));
+  await page.route('**/api/drive/status', route => route.fulfill({ json: { configured: true, connected: true, account: 'owner@example.com' } }));
+  await page.route('**/api/drive/token', route => route.fulfill({ json: { accessToken: 'test-access' } }));
+  let fail = false; const requests = [];
+  await page.route('https://www.googleapis.com/**', route => {
+    if (route.request().method() === 'POST') {
+      requests.push(route.request().postDataJSON());
+      return fail ? route.fulfill({ status: 403, json: {} }) : route.fulfill({ json: { id: 'new-folder', name: '会議記録' } });
+    }
+    return route.fulfill({ json: { id: 'new-folder', name: '会議記録', mimeType: 'application/vnd.google-apps.folder', capabilities: { canAddChildren: true } } });
+  });
+  await page.goto('/drive-fixture');
+  await page.evaluate(async () => { localStorage.removeItem('withviewer-drive:owner@example.com'); const { createDriveBackup } = await import('/drive-fixture.js'); window.backup = createDriveBackup({ currentMeeting: () => null, saveTarget: async () => {} }); await window.backup.initialize(); });
+  await page.locator('#drive-create-folder').click(); await expect(page.locator('#drive-status')).toContainText('フォルダ名を入力'); expect(requests.length).toBe(0);
+  await page.locator('#drive-new-folder-name').fill('会議記録'); await page.locator('#drive-create-folder').click();
+  await expect(page.locator('#drive-folder-name')).toHaveText('会議記録'); expect(requests[0].parents).toEqual(['root']);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('withviewer-drive:owner@example.com')).folder.id)).toBe('new-folder');
+  fail = true;
+  await page.locator('#drive-new-folder-parent').selectOption('selected'); await page.locator('#drive-new-folder-name').fill('子フォルダ'); await page.locator('#drive-create-folder').click();
+  await expect(page.locator('#drive-status')).toContainText('作成未完了'); expect(requests[1].parents).toEqual(['new-folder']);
+  await expect(page.locator('#drive-folder-name')).toHaveText('会議記録'); await expect(page.locator('#drive-create-folder')).toBeEnabled();
+});
 test('設定済みのDriveへ終了後に全原本を自動保存し、後から完成した議事録は同じファイルを更新する', async ({ page }, testInfo) => {
-  await page.route('**/drive-fixture', route => route.fulfill({ contentType: 'text/html', body: '<html lang="ja"><body><button id="drive-connect"></button><button id="drive-folder">フォルダ</button><button id="drive-disconnect">解除</button><input id="drive-auto" type="checkbox"><button id="drive-save">今すぐ保存</button><span id="drive-folder-name"></span><p id="drive-status"></p></body></html>' }));
+  await page.route('**/drive-fixture', route => route.fulfill({ contentType: 'text/html', body: '<html lang="ja"><body><button id="drive-connect"></button><button id="drive-folder">フォルダ</button><input id="drive-new-folder-name"><select id="drive-new-folder-parent"><option value="root">マイドライブ直下</option><option value="selected">保存先内</option></select><button id="drive-create-folder">作成</button><button id="drive-disconnect">解除</button><input id="drive-auto" type="checkbox"><button id="drive-save">今すぐ保存</button><span id="drive-folder-name"></span><p id="drive-status"></p></body></html>' }));
   await page.route('**/drive-fixture.js', route => route.fulfill({ contentType: 'text/javascript', body: bundle }));
   await page.route('**/api/drive/status', route => route.fulfill({ json: { configured: true, connected: true, account: 'owner@example.com' } }));
   await page.route('**/api/drive/token', route => route.fulfill({ json: { accessToken: 'test-access', appId: '123', pickerKey: 'test-picker' } }));
@@ -35,7 +59,7 @@ test('設定済みのDriveへ終了後に全原本を自動保存し、後から
 });
 
 test('Driveの保存失敗を成功表示せず、端末の記録を残して一括再試行できる', async ({ page }) => {
-  await page.route('**/drive-fixture', route => route.fulfill({ contentType: 'text/html', body: '<html><body><button id="drive-connect"></button><button id="drive-folder"></button><button id="drive-disconnect"></button><input id="drive-auto" type="checkbox"><button id="drive-save">今すぐ保存</button><span id="drive-folder-name"></span><p id="drive-status"></p></body></html>' }));
+  await page.route('**/drive-fixture', route => route.fulfill({ contentType: 'text/html', body: '<html><body><button id="drive-connect"></button><button id="drive-folder"></button><input id="drive-new-folder-name"><select id="drive-new-folder-parent"><option value="root">マイドライブ直下</option><option value="selected">保存先内</option></select><button id="drive-create-folder">作成</button><button id="drive-disconnect"></button><input id="drive-auto" type="checkbox"><button id="drive-save">今すぐ保存</button><span id="drive-folder-name"></span><p id="drive-status"></p></body></html>' }));
   await page.route('**/drive-fixture.js', route => route.fulfill({ contentType: 'text/javascript', body: bundle }));
   await page.route('**/api/drive/status', route => route.fulfill({ json: { configured: true, connected: true, account: 'owner@example.com' } }));
   let calls = 0;

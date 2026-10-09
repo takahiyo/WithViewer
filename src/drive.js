@@ -1,7 +1,7 @@
 import { authHeaders, post } from './api.js';
 import { meetingAudio, meetingFrames } from './storage.js';
 import { meetingArchive } from './meeting-archive.js';
-import { driveJson, writableFolder, uploadArchive } from './drive-upload.js';
+import { driveJson, writableFolder, createFolder, uploadArchive } from './drive-upload.js';
 
 export function createDriveBackup({ currentMeeting, saveTarget, onBusy = () => {}, canConfigure = () => true }) {
   const $ = id => document.getElementById(id);
@@ -13,6 +13,10 @@ export function createDriveBackup({ currentMeeting, saveTarget, onBusy = () => {
   function render() {
     $('drive-connect').disabled = !configured || busy || !canConfigure();
     $('drive-folder').disabled = !connected || busy || !canConfigure();
+    $('drive-create-folder').disabled = !connected || busy || !canConfigure();
+    $('drive-new-folder-name').disabled = !connected || busy || !canConfigure();
+    $('drive-new-folder-parent').disabled = !connected || busy || !canConfigure();
+    $('drive-new-folder-parent').querySelector('[value="selected"]').disabled = !settings.folder;
     $('drive-disconnect').disabled = !connected || busy;
     $('drive-auto').checked = !!settings.auto; $('drive-auto').disabled = !connected || !settings.folder || busy;
     $('drive-save').disabled = !connected || !settings.folder || busy;
@@ -59,6 +63,21 @@ export function createDriveBackup({ currentMeeting, saveTarget, onBusy = () => {
         catch (e) { status(e.message); }
       }).build().setVisible(true);
     } catch (e) { status(e.message); }
+  };
+  $('drive-create-folder').onclick = async () => {
+    if (!connected || busy || !canConfigure()) return;
+    const name = $('drive-new-folder-name').value.trim();
+    if (!name) { status('新しいフォルダ名を入力してください。'); $('drive-new-folder-name').focus(); return; }
+    const parent = $('drive-new-folder-parent').value === 'selected' ? settings.folder?.id : 'root';
+    if (!parent) { status('先に保存先フォルダを選んでください。'); return; }
+    busy = true; onBusy(true); render(); status('Google Driveにフォルダを作成しています…');
+    try {
+      const token = await post('/api/drive/token', {});
+      const folder = await createFolder(name, parent, token.accessToken);
+      settings.folder = folder; remember(); $('drive-new-folder-name').value = '';
+      status(`「${folder.name}」を作成し、保存先に設定しました。`);
+    } catch (e) { status(`フォルダ作成未完了：${e.message}通信エラーの場合はDriveで作成済みか確認してから再試行してください。`); }
+    finally { busy = false; onBusy(false); render(); }
   };
   $('drive-auto').onchange = () => { settings.auto = $('drive-auto').checked; remember(); status(settings.auto ? '会議終了時に自動保存します。終了後の文字起こし・議事録も更新します。保存完了まではページを開いておいてください。' : '自動保存を停止しました。Drive上の保存済みファイルは残ります。'); };
   $('drive-disconnect').onclick = async () => {
