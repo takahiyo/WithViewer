@@ -86,5 +86,14 @@ export function validateBackup(value) {
     }
   }
   meeting.endedAt = new Date().toISOString();
+  if (value.meeting.minutes !== undefined) {
+    const report = value.meeting.minutes;
+    if (!report || !Array.isArray(report.parts) || report.parts.length > 1000 ||
+      report.parts.some(p => p !== null && typeof p !== 'string') ||
+      report.parts.reduce((n, p) => n + (p?.length || 0), 0) > 2000000) throw new Error('議事録の形式が不正です。');
+    // Imported segment identities differ: retain the document but regenerate
+    // against the restored evidence when explicitly asked to update it.
+    meeting.minutes = { parts: [...report.parts], fingerprint: '', at: typeof report.at === 'string' ? report.at : '' };
+  }
   return meeting;
 }

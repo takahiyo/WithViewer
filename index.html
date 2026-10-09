@@ -30,11 +30,17 @@
         <div class="record-meta"><span id="record-time">00:00</span><span id="pending">文字起こし 0件待ち</span></div>
         <p id="transcription-status" role="status"></p>
         <button id="resume-transcription" class="text-button" hidden>文字起こしを再開</button>
+        <button id="retry-all" class="text-button" disabled>未完了区間を一括再試行</button>
+        <p class="hint">一時的な通信・サーバーエラーは30秒、120秒の間隔で最大2回再試行します。利用枠・認証エラーや障害が続く場合は送信を停止し、録音を保存します。</p>
         <div class="section-heading small"><h3>会議記録</h3><button id="download-audio" class="text-button">音声を保存</button></div>
         <div id="segments" class="feed" aria-live="polite"></div>
         <details><summary>映像の読取り記録</summary><div class="section-heading small"><span>保存したスクリーンショット</span><button id="download-images" class="text-button" disabled>画像を保存（ZIP）</button></div><img id="vision-preview" alt="最後に読み取った共有画面" hidden><div id="visuals" class="feed" aria-live="polite"></div></details>
         <details><summary>会議メモを追加</summary><p class="hint">発言を手入力して対話の文脈を確認できます。入力元は会議メモとして表示します。</p><form id="note-form"><textarea id="note" aria-label="会議メモ" placeholder="会議で確認できた発言・内容"></textarea><button class="secondary">会議記録に追加</button></form></details>
         <div class="section-heading small"><h3>途中要約</h3><button id="summarize" class="text-button">要約する</button></div><p id="summary" class="summary">会議記録がたまったら要約できます。</p>
+        <div class="section-heading small"><h3>会議終了後の議事録</h3><button id="create-minutes" class="text-button" disabled>議事録を作成・更新</button></div>
+        <p class="hint">発言を時系列に整え、文字起こし原文・未完了区間・画像の取得時刻と前後30秒の発言を一覧にします。長い会議は分割して処理します（Geminiの利用料金がかかります）。</p>
+        <button id="download-minutes" class="secondary" disabled>議事録と画像を保存（ZIP）</button>
+        <details><summary>議事録・資料一覧を確認</summary><div id="minutes" class="summary"></div></details>
       </section>
       <section class="card consultation">
         <div class="section-heading"><div><p class="eyebrow">TALK TOGETHER</p><h2>同席者に相談する</h2></div><span id="talk-badge" class="badge">静かに同席</span></div>

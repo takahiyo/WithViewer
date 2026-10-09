@@ -6,12 +6,15 @@ import { Consultation } from './live.js';
 import { post } from './api.js';
 import { VisualObserver, readVideoFrame } from './vision.js';
 import { safeMeetingName, imageFiles, zipImages } from './image-export.js';
+import { retryDelay } from './transcription-retry.js';
+import { minutesBatches, minutesFingerprint, minutesDocument } from './minutes.js';
 
 const $ = id => document.getElementById(id);
 let meeting, meetings = [], config = { configured: false }, recorder = null, recording = false, recordBusy = false;
 let sampleChunks, savedSeconds = 0, ingest = Promise.resolve(), writes = Promise.resolve(), processing = false, queue = [];
 let summaryBusy = false, chatBusy = false;
 let imageExportBusy = false;
+let minutesBusy = false, retryCancel = null, retryStatus = '', pauseReason = '';
 let transcriptionPaused = false;
 const PAUSED_TRANSCRIPTION = 'API上限のため文字起こしを一時停止しています。録音音声は保存しています。';
 const video = document.createElement('video'); video.muted = true; video.playsInline = true;
@@ -42,9 +45,10 @@ const vision = new VisualObserver({
 function renderControls() {
   $('download-images').disabled = imageExportBusy || !meeting?.visuals?.length;
   $('download-images').textContent = imageExportBusy ? '画像をまとめています…' : '画像を保存（ZIP）';
-  const busy = recording || recordBusy || processing || queue.length || live.state !== 'idle' || summaryBusy || chatBusy || vision.busy;
+  const busy = recording || recordBusy || processing || queue.length || live.state !== 'idle' || summaryBusy || chatBusy || vision.busy || minutesBusy;
   $('new').disabled = !!busy; $('meetings').disabled = !!busy; $('import').disabled = !!busy; $('import-button').disabled = !!busy;
-  $('record').disabled = recording || recordBusy; $('stop-record').disabled = !recording || recordBusy;
+  $('record').disabled = recording || recordBusy || minutesBusy; $('stop-record').disabled = !recording || recordBusy;
+  $('title').disabled = minutesBusy; $('note-form').querySelector('button').disabled = minutesBusy;
   $('talk').disabled = !config.configured || live.state !== 'idle' || chatBusy; $('stop-talk').disabled = live.state !== 'active';
   $('send-chat').disabled = !config.configured || chatBusy || ['connecting', 'stopping'].includes(live.state);
   $('chat-message').disabled = !config.configured || chatBusy;
@@ -57,7 +61,11 @@ function renderControls() {
   $('talk-badge').className = `badge ${live.state === 'active' ? 'active' : ''}`;
   document.querySelector('.consultation').classList.toggle('live', live.state === 'active');
   $('pending').textContent = `文字起こし ${meeting?.segments.filter(s => s.status === 'pending').length || 0}件待ち`;
-  $('transcription-status').textContent = transcriptionPaused ? PAUSED_TRANSCRIPTION : '';
+  $('transcription-status').textContent = retryStatus || (transcriptionPaused ? pauseReason || PAUSED_TRANSCRIPTION : '');
+  $('retry-all').disabled = !config.configured || processing || minutesBusy || !meeting?.segments.some(s => s.status === 'failed' && !s.kind);
+  $('create-minutes').disabled = !config.configured || minutesBusy || recording || recordBusy || processing || !meeting?.segments.some(s => s.status === 'done' && s.text && !s.kind);
+  $('create-minutes').textContent = minutesBusy ? '議事録を作成しています…' : '議事録を作成・更新';
+  $('download-minutes').disabled = minutesBusy || imageExportBusy || !meeting?.minutes;
   $('resume-transcription').hidden = !transcriptionPaused;
   $('resume-transcription').disabled = processing;
   $('record-time').textContent = timeLabel(savedSeconds);
@@ -85,8 +93,8 @@ function render() {
     if (s.status === 'failed' && s.error) { const reason = document.createElement('p'); reason.textContent = s.error; node.append(reason); }
     if (s.status === 'failed' && config.configured && !s.kind) {
       const retry = document.createElement('button'); retry.className = 'text-button'; retry.textContent = '再試行';
-      retry.disabled = processing;
-      retry.onclick = () => { transcriptionPaused = false; s.status = 'pending'; delete s.error; queue.push(s); persist(); render(); processQueue(); }; node.append(document.createElement('br'), retry);
+      retry.disabled = processing || minutesBusy;
+      retry.onclick = () => { if (processing || minutesBusy) return; transcriptionPaused = false; s.status = 'pending'; delete s.error; queue.push(s); persist(); render(); processQueue(); }; node.append(document.createElement('br'), retry);
     }
   }
   if (!meeting.segments.length) empty($('segments'), '会議の記録を開始すると、ここに発言が届きます。');
@@ -97,6 +105,7 @@ function render() {
     `${c.role === 'user' ? 'あなた' : '同席者'} · ${new Date(c.at).toLocaleTimeString('ja-JP')} ${c.interrupted ? '· 応答途中で終了' : ''}`, c.role);
   if (!meeting.consultations.length) empty($('consultations'), '「どう思う？」から、相談を始められます。');
   $('summary').textContent = meeting.summary ? `AIの要約（原発言ではありません） · ${timeLabel(meeting.summary.through)}まで\n${meeting.summary.text}` : '会議記録がたまったら要約できます。';
+  $('minutes').textContent = meeting.minutes ? minutesDocument(meeting, meeting.minutes) : '記録を終了すると、発言をなるべく残した整文と資料一覧を作成できます。';
   $('segments').scrollTop = $('segments').scrollHeight; $('consultations').scrollTop = $('consultations').scrollHeight;
   renderControls();
 }
@@ -122,13 +131,30 @@ async function processQueue() {
     try {
       const audio = await getAudio(segment.id);
       if (!audio) throw new Error('この区間の音声がありません。JSONのバックアップには音声が含まれません。');
-      const result = await post('/api/transcribe', { audio: base64(new Uint8Array(await audio.blob.arrayBuffer())) });
+      const payload = { audio: base64(new Uint8Array(await audio.blob.arrayBuffer())) };
+      let result;
+      for (let retries = 0; ; retries++) {
+        try { result = await post('/api/transcribe', payload); break; }
+        catch (error) {
+          const delay = retryDelay(error, retries);
+          if (delay === null) throw error;
+          retryStatus = `${timeLabel(segment.start)}の文字起こしを${delay / 1000}秒後に自動再試行します（${retries + 1}/2）。録音音声は保存しています。`;
+          await persist(); renderControls();
+          await new Promise((resolve, reject) => {
+            const timer = setTimeout(() => { retryCancel = null; resolve(); }, delay);
+            retryCancel = () => { clearTimeout(timer); retryCancel = null; reject(Object.assign(new Error('文字起こしを停止しました。音声は保存しています。'), { status: 401 })); };
+          });
+          retryStatus = '';
+        }
+      }
       segment.text = result.text; segment.status = 'done'; delete segment.error; live.updateContext(segment);
     } catch (error) {
+      retryStatus = '';
       segment.status = 'failed'; segment.error = error.message;
-      if (error.status === 429) {
+      if ([401, 403, 429, 502, 503, 504].includes(error.status) || retryDelay(error, 0) !== null || ['1101', '1102'].includes(error.code)) {
         transcriptionPaused = true;
-        for (const waiting of queue.splice(0)) { waiting.status = 'failed'; waiting.error = PAUSED_TRANSCRIPTION; }
+        pauseReason = error.status === 429 ? PAUSED_TRANSCRIPTION : 'サーバーまたは認証のエラーのため自動送信を停止しました。録音音声は保存しています。復旧後に一括再試行できます。';
+        for (const waiting of queue.splice(0)) { waiting.status = 'failed'; waiting.error = pauseReason; }
       }
       notice(error.status === 429 ? `${error.message} 録音は継続し、文字起こしの自動送信を一時停止しました。` : error.message);
     }
@@ -153,10 +179,10 @@ async function startRecording() {
         const blob = new Blob([wav(pcm16(chunk), rate)], { type: 'audio/wav' });
         ingest = ingest.then(async () => {
           await saveAudio({ id, meetingId: meeting.id, start: segment.start, rate, blob });
-          if (transcriptionPaused) { segment.status = 'failed'; segment.error = PAUSED_TRANSCRIPTION; }
+          if (transcriptionPaused) { segment.status = 'failed'; segment.error = pauseReason || PAUSED_TRANSCRIPTION; }
           addObservation(meeting, segment); await persist();
           const savedSegment = meeting.segments.find(s => s.id === id);
-          if (transcriptionPaused) { savedSegment.status = 'failed'; savedSegment.error = PAUSED_TRANSCRIPTION; await persist(); }
+          if (transcriptionPaused) { savedSegment.status = 'failed'; savedSegment.error = pauseReason || PAUSED_TRANSCRIPTION; await persist(); }
           else if (config.configured) { queue.push(savedSegment); processQueue(); }
           render();
         }).catch(() => { notice('音声の保存に失敗しました。空き容量を確認してください。'); stopRecording(); });
@@ -185,6 +211,14 @@ async function stopRecording() {
 
 $('record').onclick = startRecording; $('stop-record').onclick = stopRecording;
 $('resume-transcription').onclick = () => { transcriptionPaused = false; notice('今後の音声の文字起こしを再開します。保存済みの未完了区間は各「再試行」で処理できます。'); render(); };
+$('retry-all').onclick = () => {
+  if (processing || minutesBusy) return;
+  transcriptionPaused = false;
+  const failed = meeting.segments.filter(s => s.status === 'failed' && !s.kind);
+  for (const s of failed) { s.status = 'pending'; delete s.error; queue.push(s); }
+  notice(`${failed.length}区間を時刻順に一括再試行します。処理が続けて失敗した場合は自動送信を停止します。`);
+  persist(); render(); processQueue();
+};
 $('vision-enabled').onchange = () => {
   meeting.visualEnabled = $('vision-enabled').checked;
   vision.setEnabled(meeting.visualEnabled);
@@ -252,6 +286,40 @@ $('summarize').onclick = async () => {
 function download(blob, name) {
   const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+$('create-minutes').onclick = async () => {
+  if (minutesBusy || recording || recordBusy || processing) return;
+  const target = meeting, snapshot = structuredClone(target);
+  minutesBusy = true; renderControls();
+  try {
+    const fingerprint = await minutesFingerprint(snapshot), batches = minutesBatches(snapshot);
+    if (!batches.length) throw new Error('議事録にできる文字起こしがありません。');
+    if (target.minutes?.fingerprint !== fingerprint) target.minutes = { fingerprint, parts: batches.map(() => null), at: new Date().toISOString() };
+    await persist();
+    for (let i = 0; i < batches.length; i++) {
+      if (target.minutes.parts[i]) continue;
+      notice(`議事録を作成中：${i + 1}/${batches.length}。未完了の音声は補完せず明示します。`);
+      const result = await post('/api/minutes', { evidence: batches[i] });
+      target.minutes.parts[i] = result.text; await persist(); render();
+    }
+    notice('議事録を保存しました。画像との対応は取得時刻が近い発言として一覧できます。');
+  } catch (error) { notice(error.message); }
+  finally { minutesBusy = false; render(); }
+};
+$('download-minutes').onclick = async () => {
+  if (minutesBusy || imageExportBusy || !meeting.minutes) return;
+  const snapshot = structuredClone(meeting);
+  imageExportBusy = true; renderControls();
+  try {
+    const stored = await Promise.all((snapshot.visuals || []).map(v => getFrame(v.id)));
+    const frames = stored.filter(f => f && f.meetingId === snapshot.id).sort((a, b) => a.at - b.at);
+    const files = imageFiles(snapshot.title, frames);
+    const images = new Map(frames.map((f, i) => [f.id, files[i].name]));
+    files.unshift({ name: `${safeMeetingName(snapshot.title)}_議事録.md`, data: new TextEncoder().encode(minutesDocument(snapshot, snapshot.minutes, images)) });
+    download(zipImages(files), `${safeMeetingName(snapshot.title)}_議事録.zip`);
+    notice('議事録・原文・保存済み画像をZIPに保存しました。');
+  } catch (error) { notice(error.message); }
+  finally { imageExportBusy = false; renderControls(); }
+};
 $('export').onclick = () => download(new Blob([JSON.stringify({ version: 1, audioIncluded: false, meeting }, null, 2)], { type: 'application/json' }), 'withviewer-record.json');
 $('download-images').onclick = async () => {
   if (imageExportBusy) return;
@@ -288,7 +356,7 @@ $('download-audio').onclick = async () => {
   } catch (error) { notice(error.message); }
 };
 window.addEventListener('beforeunload', event => {
-  if (recording || recordBusy || processing || live.state !== 'idle' || chatBusy || vision.busy) { event.preventDefault(); event.returnValue = ''; }
+  if (recording || recordBusy || processing || live.state !== 'idle' || chatBusy || vision.busy || minutesBusy) { event.preventDefault(); event.returnValue = ''; }
 });
 
 async function initialize() {
@@ -299,7 +367,7 @@ async function initialize() {
       if (!config.firebase || config.setupError) { $('google-login').disabled = true; $('login-status').textContent = config.setupError || 'Firebaseの設定を確認してください。'; return; }
       const { prepareGoogleLogin } = await import('./auth.js');
       const session = await prepareGoogleLogin(config.firebase, { loginButton: $('google-login'), logoutButton: $('cloud-logout'),
-        status: $('login-status'), beforeLogout: async () => { await live.stop(); await stopRecording(); await ingest; await writes; } });
+        status: $('login-status'), beforeLogout: async () => { transcriptionPaused = true; retryCancel?.(); await live.stop(); await stopRecording(); await ingest; await writes; } });
       if (!session) return;
       config.configured = session.configured; $('app-main').hidden = false; $('login-panel').hidden = true;
     }

@@ -68,7 +68,7 @@ test('ログイン画面だけを公開し、認証なし・未設定・別URL�
   for (const path of ['/', '/assets/app.js', '/pcm-worklet.js', '/api/config']) {
     assert.equal((await worker.fetch(request(path), env)).status, 200);
   }
-  for (const path of ['/api/session', '/api/live-token', '/api/transcribe', '/api/chat', '/api/observe-frame', '/api/summary']) {
+  for (const path of ['/api/session', '/api/live-token', '/api/transcribe', '/api/chat', '/api/observe-frame', '/api/summary', '/api/minutes']) {
     assert.equal((await worker.fetch(request(path), env)).status, 401);
   }
   assert.equal((await worker.fetch(request('/api/session'), {})).status, 503);
@@ -95,12 +95,12 @@ test('本人ログイン後の画面・設定・音声・画像・相談・Live�
   for (const [path, body] of [
     ['/api/transcribe', { audio: 'AAAA' }], ['/api/observe-frame', { image: 'AAAA', mimeType: 'image/jpeg' }],
     ['/api/chat', { message: 'どう思う？', history: [], context: '{}' }], ['/api/summary', { evidence: '会議原文' }],
-    ['/api/live-token', { context: '{}' }]
+    ['/api/minutes', { evidence: '会議原文' }], ['/api/live-token', { context: '{}' }]
   ]) {
     const response = await worker.fetch(request(path, jwt, body), env);
     assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'private, no-store');
   }
-  assert.equal(calls.length, 5);
+  assert.equal(calls.length, 6);
   assert.equal(calls.at(-1).config.uses, 1);
 });
 

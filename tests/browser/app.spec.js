@@ -1,5 +1,77 @@
 import { test, expect } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
+
+async function seedReportMeeting(page, texts = ['', '', '']) {
+  await page.route('**/api/config', route => route.fulfill({ json: { configured: true } }));
+  await page.goto('/'); await expect(page.locator('#title')).toHaveValue('新しい会議');
+  await page.evaluate(async texts => {
+    const db = await new Promise(resolve => { const r = indexedDB.open('withviewer'); r.onsuccess = () => resolve(r.result); });
+    await new Promise(resolve => {
+      const tx = db.transaction(['meetings', 'audio', 'frames'], 'readwrite');
+      tx.objectStore('meetings').clear();
+      const segments = texts.map((text, i) => ({ id: `s${i}`, source: 'meeting', start: i * 10, end: i * 10 + 10, text, status: text ? 'done' : 'failed' }));
+      tx.objectStore('meetings').put({ id: 'fixture', title: '企画会議', createdAt: new Date().toISOString(), endedAt: new Date().toISOString(), segments,
+        consultations: [{ role: 'user', text: '個人の相談', at: new Date().toISOString() }], visuals: [{ id: 'frame', source: 'meeting-visual', at: 15, text: '予算100万円の図' }] });
+      for (const s of segments) tx.objectStore('audio').put({ id: s.id, meetingId: 'fixture', start: s.start, rate: 16000, blob: new Blob(['synthetic audio']) });
+      tx.objectStore('frames').put({ id: 'frame', meetingId: 'fixture', at: 15, mimeType: 'image/png', image: 'iVBORw==' });
+      tx.oncomplete = resolve;
+    }); db.close();
+  }, texts);
+  await page.reload(); await expect(page.locator('#title')).toHaveValue('企画会議');
+}
+
+test('一括再試行は共通の待機時間と回数制限を守り、障害が続けば残りの音声を保存したまま停止する', async ({ page }) => {
+  await seedReportMeeting(page);
+  await page.clock.install();
+  let attempts = 0, recovered = false;
+  await page.route('**/api/transcribe', route => { attempts++; return recovered ? route.fulfill({ json: { text: `回復した発言${attempts}` } }) : route.fulfill({ status: 503, json: { error: 'Gemini側の一時的な障害' } }); });
+  await page.locator('#retry-all').click();
+  await expect(page.locator('#transcription-status')).toContainText('30秒後'); expect(attempts).toBe(1);
+  await page.clock.fastForward(29999); expect(attempts).toBe(1);
+  await page.clock.fastForward(1); await expect(page.locator('#transcription-status')).toContainText('120秒後'); expect(attempts).toBe(2);
+  await page.clock.fastForward(120000); await expect(page.locator('#transcription-status')).toContainText('自動送信を停止'); expect(attempts).toBe(3);
+  await expect(page.locator('#segments .failed')).toHaveCount(3);
+  recovered = true; await page.locator('#retry-all').click();
+  await expect(page.locator('#pending')).toHaveText('文字起こし 0件待ち'); await expect(page.locator('#segments .failed')).toHaveCount(0); expect(attempts).toBe(6);
+  await page.reload(); await expect(page.locator('#segments')).toContainText('回復した発言6');
+});
+
+test('自動再試行で一時障害が回復したら次の区間も処理する', async ({ page }) => {
+  await seedReportMeeting(page); await page.clock.install(); let attempts = 0;
+  await page.route('**/api/transcribe', route => { attempts++; return attempts === 1 ? route.fulfill({ status: 502, body: '<html>Bad gateway</html>' }) : route.fulfill({ json: { text: '回復した原発言' } }); });
+  await page.locator('#retry-all').click(); await expect(page.locator('#transcription-status')).toContainText('30秒後');
+  await page.clock.fastForward(30000); await expect(page.locator('#segments .failed')).toHaveCount(0);
+  await expect(page.locator('#pending')).toHaveText('文字起こし 0件待ち'); expect(attempts).toBe(4);
+});
+
+test('議事録は途中成功を保持して再開し、原文・未完了区間・画像を同じZIPへ保存する', async ({ page }, testInfo) => {
+  await seedReportMeeting(page, ['発言A'.repeat(4000), '発言B'.repeat(4000), '']);
+  let calls = 0;
+  await page.route('**/api/minutes', route => {
+    calls++;
+    expect(route.request().postDataJSON().evidence).not.toContain('個人の相談');
+    return calls === 2 ? route.fulfill({ status: 503, json: { error: '一時障害' } }) : route.fulfill({ json: { text: `整文結果${calls}` } });
+  });
+  await page.locator('#create-minutes').click(); await expect(page.locator('#notice')).toHaveText('一時障害');
+  await page.reload(); await expect(page.locator('#minutes')).toContainText('整文結果1');
+  await page.locator('#create-minutes').click(); await expect(page.locator('#notice')).toContainText('議事録を保存'); expect(calls).toBe(3);
+  await expect(page.locator('#minutes')).toContainText('整文結果3');
+  await expect(page.locator('#minutes')).toContainText('文字起こし未完了');
+  const pending = page.waitForEvent('download'); await page.locator('#download-minutes').click(); const download = await pending;
+  expect(download.suggestedFilename()).toBe('企画会議_議事録.zip');
+  const path = testInfo.outputPath('minutes.zip'); await download.saveAs(path);
+  const zip = await readFile(path); const entries = new Map(); let offset = 0;
+  while (zip.readUInt32LE(offset) === 0x04034b50) {
+    const size = zip.readUInt32LE(offset + 18), nameSize = zip.readUInt16LE(offset + 26), extra = zip.readUInt16LE(offset + 28);
+    const name = zip.subarray(offset + 30, offset + 30 + nameSize).toString('utf8'), start = offset + 30 + nameSize + extra;
+    entries.set(name, zip.subarray(start, start + size)); offset = start + size;
+  }
+  expect(entries.size).toBe(2);
+  const markdown = entries.get('企画会議_議事録.md').toString('utf8');
+  expect(markdown).toContain('整文結果1'); expect(markdown).toContain('整文結果3'); expect(markdown).toContain('予算100万円の図'); expect(markdown).toContain('対応は未確認'); expect(markdown).toContain('発言A'.repeat(4000)); expect(markdown).not.toContain('個人の相談');
+  expect(markdown).toContain('企画会議_00-00-15-000.png');
+});
 
 test('公開版の未設定時はGoogleログイン案内を表示し会議操作を隠す', async ({ page }) => {
   await page.route('**/api/config', route => route.fulfill({ json: { authProvider: 'firebase', firebase: null, setupError: 'Firebaseログインの設定が未完了です。' } }));
@@ -104,7 +176,7 @@ test('会議の連続音声を保存し、対話接続の失敗後も記録を�
   let attempts = 0;
   await page.route('**/api/transcribe', route => {
     attempts++;
-    return attempts === 1 ? route.fulfill({ status: 502, json: { error: 'テスト用の一時的な失敗' } }) : route.fulfill({ json: { text: 'A案を採用する。' } });
+    return attempts === 1 ? route.fulfill({ status: 400, json: { error: 'テスト用の形式エラー' } }) : route.fulfill({ json: { text: 'A案を採用する。' } });
   });
   await page.route('**/api/live-token', route => route.fulfill({ status: 503, json: { error: 'テスト用の対話接続失敗' } }));
   await page.goto('/'); await page.locator('#record').click();
@@ -113,7 +185,7 @@ test('会議の連続音声を保存し、対話接続の失敗後も記録を�
   await expect(page.locator('#record-badge')).toHaveText('記録中');
   await expect(page.locator('#stop-record')).toBeEnabled();
   await expect(page.locator('#segments')).toContainText('文字起こし未完了', { timeout: 20000 });
-  await page.getByRole('button', { name: '再試行' }).click(); await expect(page.locator('#segments')).toContainText('A案を採用する。');
+  await page.getByRole('button', { name: '再試行', exact: true }).click(); await expect(page.locator('#segments')).toContainText('A案を採用する。');
   await page.locator('#stop-record').click(); await expect(page.locator('#record-badge')).toHaveText('待機中');
   await expect(page.locator('#pending')).toHaveText('文字起こし 0件待ち');
   const download = page.waitForEvent('download'); await page.locator('#download-audio').click();
