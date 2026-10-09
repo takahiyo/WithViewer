@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ja">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>WithViewer — 静かな同席者</title></head>
+<body>
+  <header><a class="brand" href="/">WithViewer<span>静かな同席者</span></a><span id="connection" class="badge">接続を確認中</span><a id="cloud-logout" href="/cdn-cgi/access/logout" hidden>ログアウト</a></header>
+  <main>
+    <section class="intro"><p class="eyebrow">一緒に聞く。声でも、文字でも相談する。</p><h1>会議のそばに、<br>もうひとつの視点を。</h1><p>普段は静かに記録。気になることがあれば、声やチャットで相談してください。</p></section>
+    <div id="notice" role="alert" hidden></div>
+    <section class="setup card">
+      <label>保存した会議<select id="meetings" aria-label="保存した会議"></select></label>
+      <label class="title-field">会議の名前<input id="title" maxlength="120" value="新しい会議"></label>
+      <button id="new" class="secondary">新しい会議</button>
+      <button id="export" class="secondary">記録を書き出す</button>
+      <button id="import-button" class="secondary">記録を読み込む</button><input id="import" type="file" accept="application/json,.json" hidden>
+    </section>
+    <div class="panels">
+      <section class="card observation">
+        <div class="section-heading"><div><p class="eyebrow">OBSERVE</p><h2>会議を見聞きする</h2></div><span id="record-badge" class="badge">待機中</span></div>
+        <p class="description">会議・動画のタブを選び、「タブの音声を共有」を有効にしてください。</p>
+        <p class="hint">会議タブだけを共有し、ヘッドホンを使ってください。映像は下のスイッチで対象にできます。</p>
+        <div class="actions"><button id="record">会議の記録を開始</button><button id="stop-record" class="secondary" disabled>記録を終了</button></div>
+        <div class="vision-controls">
+          <label class="vision-toggle"><input id="vision-enabled" type="checkbox">映像も見る</label>
+          <label>読取り間隔<select id="vision-interval"><option value="15000">15秒</option><option value="30000" selected>30秒（標準）</option><option value="60000">60秒（節約）</option></select></label>
+          <button id="read-frame" class="secondary" disabled>今の画面だけ読む</button>
+        </div>
+        <p id="vision-status" class="hint" role="status">映像オフ · 読取り送信 0枚（このページ）</p>
+        <p class="hint">記録中も切り替えられます。オフにすると新しい映像の送信を止めます。送信済みの処理と以前の読取りは残ります。オンの間はチャットにも最新の静止画を添付します（別途画像入力分がかかります）。</p>
+        <div class="record-meta"><span id="record-time">00:00</span><span id="pending">文字起こし 0件待ち</span></div>
+        <p id="transcription-status" role="status"></p>
+        <button id="resume-transcription" class="text-button" hidden>文字起こしを再開</button>
+        <div class="section-heading small"><h3>会議記録</h3><button id="download-audio" class="text-button">音声を保存</button></div>
+        <div id="segments" class="feed" aria-live="polite"></div>
+        <details><summary>映像の読取り記録</summary><img id="vision-preview" alt="最後に読み取った共有画面" hidden><div id="visuals" class="feed" aria-live="polite"></div></details>
+        <details><summary>会議メモを追加</summary><p class="hint">発言を手入力して対話の文脈を確認できます。入力元は会議メモとして表示します。</p><form id="note-form"><textarea id="note" aria-label="会議メモ" placeholder="会議で確認できた発言・内容"></textarea><button class="secondary">会議記録に追加</button></form></details>
+        <div class="section-heading small"><h3>途中要約</h3><button id="summarize" class="text-button">要約する</button></div><p id="summary" class="summary">会議記録がたまったら要約できます。</p>
+      </section>
+      <section class="card consultation">
+        <div class="section-heading"><div><p class="eyebrow">TALK TOGETHER</p><h2>同席者に相談する</h2></div><span id="talk-badge" class="badge">静かに同席</span></div>
+        <div class="voice-orb" aria-hidden="true"><div></div><span>WV</span></div>
+        <p id="talk-status" class="talk-status" role="status">静かな同席状態です。</p>
+        <div class="actions center"><button id="talk">音声で相談を始める</button><button id="stop-talk" class="secondary" disabled>相談を終了</button></div>
+        <p class="hint center">相談中も会議の記録は続きます。<br>開始・終了のショートカット：Alt + Shift + C</p>
+        <div class="prompts"><span>「今の説明、どう思う？」</span><span>「前の案と比べて？」</span><span>「確認するなら何を聞く？」</span></div>
+        <div class="section-heading small"><h3>相談履歴</h3><span class="hint">会議記録とは別に保存</span></div>
+        <div id="consultations" class="feed" aria-live="polite"></div>
+        <form id="chat-form" class="chat-form">
+          <label for="chat-message">テキストで相談</label>
+          <textarea id="chat-message" maxlength="4000" rows="3" placeholder="今の説明、どう思う？" disabled></textarea>
+          <div class="chat-actions"><span class="hint">Ctrl + Enterで送信・Enterで改行</span><button id="send-chat" disabled>送信</button></div>
+          <p id="chat-status" class="hint" role="status"></p>
+          <p class="hint">音声とチャットで相談履歴を共有します。音声相談中に送信すると、音声を終了してチャットに切り替わります。</p>
+        </form>
+      </section>
+    </div>
+    <section class="card search"><h2>以前の発言を探す</h2><form id="search-form"><input id="query" aria-label="会議記録の検索語" placeholder="発言に含まれる語句"><button class="secondary">検索</button></form><div id="results"></div></section>
+    <footer>記録はこのブラウザーに保存されます。文字起こし・映像の読取り・要約・音声／テキスト相談の利用時は対象の内容をGeminiへ送信します。<br>AIの利用は利用枠に応じて費用が発生します。保存した会議は終了後も相談できます。</footer>
+  </main>
+  <script type="module" src="/src/app.js"></script>
+</body>
+</html>

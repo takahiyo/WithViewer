@@ -1,0 +1,27 @@
+{
+  "name": "withviewer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env server.js",
+    "start": "node --env-file-if-exists=.env server.js --production",
+    "build": "vite build",
+    "build:pages": "node scripts/build-pages.js",
+    "cloudflare": "node scripts/cloudflare.js",
+    "dev:pages": "node scripts/cloudflare.js pages dev dist",
+    "deploy:pages": "npm run build:pages && node scripts/cloudflare.js pages deploy dist --branch main",
+    "test": "node --test tests/*.test.js",
+    "test:browser": "node scripts/test-browser.js"
+  },
+  "dependencies": {
+    "@google/genai": "^1.52.0",
+    "jose": "^6.2.12",
+    "vite": "^7.3.7"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "esbuild": "^0.28.2",
+    "wrangler": "^4.149.0"
+  }
+}

@@ -1,0 +1,9 @@
+node_modules/
+.npm-cache/
+dist/
+.env
+.dev.vars
+.dev.vars.*
+.wrangler/
+cloudflare.private.json
+test-results/

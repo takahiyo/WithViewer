@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "withviewer",
+  "pages_build_output_dir": "./dist",
+  "compatibility_date": "2026-10-09",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "GEMINI_LIVE_MODEL": "gemini-3.8-live",
+    "GEMINI_TRANSCRIBE_MODEL": "gemini-3.8-flash"
+  }
+}
