@@ -194,6 +194,13 @@ test('記録中に映像をオン・オフでき、オフでは添付を止め�
   await page.screenshot({ path: testInfo.outputPath('vision.png'), fullPage: true });
   await page.reload(); await expect(page.locator('#visuals')).toContainText('Plan A');
   await expect(page.locator('#vision-enabled')).not.toBeChecked();
+  await page.locator('#title').fill('企画/会議'); await page.locator('#title').blur();
+  await page.locator('summary').filter({ hasText: '映像の読取り記録' }).click();
+  const imageDownload = page.waitForEvent('download'); await page.locator('#download-images').click();
+  const archive = await imageDownload;
+  expect(archive.suggestedFilename()).toBe('企画_会議_画像.zip');
+  await archive.saveAs(testInfo.outputPath('meeting-images.zip'));
+  await expect(page.locator('#notice')).toContainText('2枚の画像をZIPに保存');
 });
 test('既存の保存形式から更新しても会議と音声を保持する', async ({ page }) => {
   const root = 'http://127.0.0.1:5174/';

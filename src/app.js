@@ -5,11 +5,13 @@ import { capture, SampleChunks, pcm16, wav, base64 } from './audio.js';
 import { Consultation } from './live.js';
 import { post } from './api.js';
 import { VisualObserver, readVideoFrame } from './vision.js';
+import { safeMeetingName, imageFiles, zipImages } from './image-export.js';
 
 const $ = id => document.getElementById(id);
 let meeting, meetings = [], config = { configured: false }, recorder = null, recording = false, recordBusy = false;
 let sampleChunks, savedSeconds = 0, ingest = Promise.resolve(), writes = Promise.resolve(), processing = false, queue = [];
 let summaryBusy = false, chatBusy = false;
+let imageExportBusy = false;
 let transcriptionPaused = false;
 const PAUSED_TRANSCRIPTION = 'API上限のため文字起こしを一時停止しています。録音音声は保存しています。';
 const video = document.createElement('video'); video.muted = true; video.playsInline = true;
@@ -38,6 +40,8 @@ const vision = new VisualObserver({
 });
 
 function renderControls() {
+  $('download-images').disabled = imageExportBusy || !meeting?.visuals?.length;
+  $('download-images').textContent = imageExportBusy ? '画像をまとめています…' : '画像を保存（ZIP）';
   const busy = recording || recordBusy || processing || queue.length || live.state !== 'idle' || summaryBusy || chatBusy || vision.busy;
   $('new').disabled = !!busy; $('meetings').disabled = !!busy; $('import').disabled = !!busy; $('import-button').disabled = !!busy;
   $('record').disabled = recording || recordBusy; $('stop-record').disabled = !recording || recordBusy;
@@ -249,6 +253,20 @@ function download(blob, name) {
   const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 $('export').onclick = () => download(new Blob([JSON.stringify({ version: 1, audioIncluded: false, meeting }, null, 2)], { type: 'application/json' }), 'withviewer-record.json');
+$('download-images').onclick = async () => {
+  if (imageExportBusy) return;
+  const target = meeting, title = target.title;
+  const observations = [...(target.visuals || [])];
+  imageExportBusy = true; renderControls();
+  try {
+    const stored = await Promise.all(observations.map(item => getFrame(item.id)));
+    const frames = stored.filter(frame => frame && frame.meetingId === target.id);
+    if (!frames.length) throw new Error('このブラウザーに保存された会議画像がありません。JSONの読込みには画像本体は含まれません。');
+    download(zipImages(imageFiles(title, frames)), `${safeMeetingName(title)}_画像.zip`);
+    notice(`${frames.length}枚の画像をZIPに保存しました。${frames.length < observations.length ? '画像本体がない記録は除外しました。' : ''}`);
+  } catch (error) { notice(error.message); }
+  finally { imageExportBusy = false; renderControls(); }
+};
 $('import-button').onclick = () => $('import').click();
 $('import').onchange = async () => {
   try {
