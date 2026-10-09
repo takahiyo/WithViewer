@@ -26,7 +26,20 @@ async function google(fetcher, url, options) {
   let response;
   try { response = await fetcher(url, { ...options, signal: AbortSignal.timeout(15000) }); }
   catch { fail(503, 'Google Driveに接続できません。ローカルの記録は残っています。'); }
-  if (!response.ok) fail(response.status === 400 || response.status === 401 ? 401 : 503, 'Google Driveの連携を確認し、必要なら接続し直してください。ローカルの記録は残っています。');
+  if (!response.ok) {
+    // Expose only known codes, never upstream descriptions or credentials.
+    const result = await response.json().catch(() => ({}));
+    const messages = {
+      invalid_client: 'Google認証のクライアント設定が一致しません（invalid_client）。管理者はプレビュー環境のGOOGLE_DRIVE_CLIENT_IDとGOOGLE_DRIVE_CLIENT_SECRETが同じOAuthクライアントの値か確認し、再デプロイしてください。',
+      unauthorized_client: 'Google認証のクライアント種別・設定を確認してください（unauthorized_client）。ウェブアプリケーション用OAuthクライアントが必要です。',
+      invalid_grant: 'Googleの認可が期限切れ・使用済み、または認証設定と一致しません（invalid_grant）。この画面を再読み込みせず、アプリからGoogle Driveを接続し直してください。繰り返す場合はリダイレクトURIの設定を確認してください。',
+      redirect_uri_mismatch: 'Google認証の戻り先URLが一致しません（redirect_uri_mismatch）。OAuthクライアントの承認済みリダイレクトURIに、このサイトの/api/drive/callbackを登録してください。',
+      insufficient_scope: 'Google Driveへの保存権限が不足しています。アプリから接続し直して保存を許可してください。'
+    };
+    const message = typeof result.error === 'string' ? messages[result.error] : undefined;
+    fail(response.status === 400 || response.status === 401 ? 401 : 503,
+      (message || `Googleとの認証通信に失敗しました（HTTP ${response.status}）。時間をおいてアプリから接続し直してください。`) + ' ローカルの記録は残っています。');
+  }
   return response.json();
 }
 const exchange = (env, fetcher, params) => google(fetcher, 'https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ client_id: env.GOOGLE_DRIVE_CLIENT_ID, client_secret: env.GOOGLE_DRIVE_CLIENT_SECRET, ...params }) });

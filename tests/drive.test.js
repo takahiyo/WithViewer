@@ -47,6 +47,21 @@ test('OAuth callbackはブラウザーのstateとGoogleアカウントの一致�
   assert.doesNotMatch(await response.text(), /refresh|access_token/);
   await assert.rejects(driveCallback(request(`/api/drive/callback?state=${state}&code=code`, cookies, 'GET'), env, async url => url.includes('/token') ? Response.json({ access_token: 'a', refresh_token: 'r', scope: 'https://www.googleapis.com/auth/drive.file' }) : Response.json({ email: 'another@example.com', email_verified: true })), /同じアカウント/);
 });
+test('OAuthの失敗原因を区別し、Googleの生の説明や秘密情報は表示しない', async () => {
+  const connect = await driveApi(request('/api/drive/connect'), env, {});
+  const state = new URL((await connect.json()).url).searchParams.get('state');
+  const cookies = connect.headers.get('set-cookie').split(';')[0];
+  for (const code of ['invalid_client', 'invalid_grant', 'redirect_uri_mismatch', 'unauthorized_client']) {
+    await assert.rejects(driveCallback(request(`/api/drive/callback?state=${state}&code=code`, cookies, 'GET'), env,
+      async () => Response.json({ error: code, error_description: 'private-upstream-value' }, { status: 400 })), error => {
+        assert.ok(error.clientMessage.includes(code));
+        assert.ok(!error.clientMessage.includes('private-upstream-value'));
+        return true;
+      });
+  }
+  await assert.rejects(driveCallback(request(`/api/drive/callback?state=${state}&code=code`, cookies, 'GET'), env,
+    async () => new Response('private-upstream-value', { status: 502 })), /HTTP 502/);
+});
 test('長時間会議の保存時は長期認可から新しいトークンを取得し、別ユーザーには渡さない', async () => {
   const cookies = await credentials(); let calls = 0;
   const fetcher = async (url, options) => { calls++; assert.equal(options.body.get('grant_type'), 'refresh_token'); assert.equal(options.body.get('refresh_token'), 'test-refresh-token'); return Response.json({ access_token: 'fresh-access' }); };
