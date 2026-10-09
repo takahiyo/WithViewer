@@ -93,7 +93,7 @@ export function validateBackup(value) {
       report.parts.reduce((n, p) => n + (p?.length || 0), 0) > 2000000) throw new Error('議事録の形式が不正です。');
     // Imported segment identities differ: retain the document but regenerate
     // against the restored evidence when explicitly asked to update it.
-    meeting.minutes = { parts: [...report.parts], fingerprint: '', at: typeof report.at === 'string' ? report.at : '' };
+    meeting.minutes = { format: report.format === 2 ? 2 : 1, parts: [...report.parts], fingerprint: '', at: typeof report.at === 'string' ? report.at : '' };
   }
   return meeting;
 }

@@ -7,7 +7,8 @@ import { post } from './api.js';
 import { VisualObserver, readVideoFrame } from './vision.js';
 import { safeMeetingName, imageFiles, zipImages } from './image-export.js';
 import { retryDelay } from './transcription-retry.js';
-import { minutesBatches, minutesFingerprint, minutesDocument } from './minutes.js';
+import { MINUTES_FORMAT, minutesBatches, minutesFingerprint, minutesDocument } from './minutes.js';
+import { minutesBody, minutesHtml, MINUTES_CSS } from './minutes-layout.js';
 
 const $ = id => document.getElementById(id);
 let meeting, meetings = [], config = { configured: false }, recorder = null, recording = false, recordBusy = false;
@@ -15,6 +16,8 @@ let sampleChunks, savedSeconds = 0, ingest = Promise.resolve(), writes = Promise
 let summaryBusy = false, chatBusy = false;
 let imageExportBusy = false;
 let minutesBusy = false, retryCancel = null, retryStatus = '', pauseReason = '';
+let lastMinutesView = '';
+const reportStyle = document.createElement('style'); reportStyle.textContent = MINUTES_CSS; document.head.append(reportStyle);
 let transcriptionPaused = false;
 const PAUSED_TRANSCRIPTION = 'API上限のため文字起こしを一時停止しています。録音音声は保存しています。';
 const video = document.createElement('video'); video.muted = true; video.playsInline = true;
@@ -105,10 +108,31 @@ function render() {
     `${c.role === 'user' ? 'あなた' : '同席者'} · ${new Date(c.at).toLocaleTimeString('ja-JP')} ${c.interrupted ? '· 応答途中で終了' : ''}`, c.role);
   if (!meeting.consultations.length) empty($('consultations'), '「どう思う？」から、相談を始められます。');
   $('summary').textContent = meeting.summary ? `AIの要約（原発言ではありません） · ${timeLabel(meeting.summary.through)}まで\n${meeting.summary.text}` : '会議記録がたまったら要約できます。';
-  $('minutes').textContent = meeting.minutes ? minutesDocument(meeting, meeting.minutes) : '記録を終了すると、発言をなるべく残した整文と資料一覧を作成できます。';
+  renderMinutes();
   $('segments').scrollTop = $('segments').scrollHeight; $('consultations').scrollTop = $('consultations').scrollHeight;
   renderControls();
 }
+function renderMinutes() {
+  const signature = JSON.stringify({ id: meeting.id, title: meeting.title, segments: meeting.segments, visuals: meeting.visuals, report: meeting.minutes });
+  if (signature === lastMinutesView) return;
+  lastMinutesView = signature;
+  if (!meeting.minutes) { $('minutes').textContent = '記録終了後に「議事録を作成・更新」で清書できます。'; return; }
+  $('minutes').innerHTML = minutesBody(meeting, meeting.minutes);
+  const targetId = meeting.id;
+  for (const img of $('minutes').querySelectorAll('img[data-frame]')) getFrame(img.dataset.frame).then(frame => {
+    if (!img.isConnected || !frame || frame.meetingId !== targetId) return;
+    img.src = `data:${frame.mimeType};base64,${frame.image}`; img.hidden = false;
+    img.nextElementSibling.hidden = true;
+  }).catch(() => {});
+}
+$('minutes').addEventListener('click', event => {
+  const link = event.target.closest('a[href^="#report-"]'); if (!link) return;
+  const target = document.getElementById(link.hash.slice(1)); if (!target) return;
+  event.preventDefault();
+  let parent = target;
+  while (parent && parent !== $('minutes')) { if (parent.tagName === 'DETAILS') parent.open = true; parent = parent.parentElement; }
+  target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
 function selectMeeting(value) {
   meeting = value; $('title').value = meeting.title;
   meeting.visualEnabled = vision.enabled;
@@ -293,15 +317,15 @@ $('create-minutes').onclick = async () => {
   try {
     const fingerprint = await minutesFingerprint(snapshot), batches = minutesBatches(snapshot);
     if (!batches.length) throw new Error('議事録にできる文字起こしがありません。');
-    if (target.minutes?.fingerprint !== fingerprint) target.minutes = { fingerprint, parts: batches.map(() => null), at: new Date().toISOString() };
+    if (target.minutes?.fingerprint !== fingerprint) target.minutes = { format: MINUTES_FORMAT, fingerprint, parts: batches.map(() => null), at: new Date().toISOString() };
     await persist();
     for (let i = 0; i < batches.length; i++) {
       if (target.minutes.parts[i]) continue;
       notice(`議事録を作成中：${i + 1}/${batches.length}。未完了の音声は補完せず明示します。`);
-      const result = await post('/api/minutes', { evidence: batches[i] });
+      const result = await post('/api/minutes', { evidence: batches[i], previous: i ? batches[i - 1].slice(-2000) : '' });
       target.minutes.parts[i] = result.text; await persist(); render();
     }
-    notice('議事録を保存しました。画像との対応は取得時刻が近い発言として一覧できます。');
+    notice('清書を保存しました。音声原本とスクショは別の欄で確認できます。');
   } catch (error) { notice(error.message); }
   finally { minutesBusy = false; render(); }
 };
@@ -313,8 +337,10 @@ $('download-minutes').onclick = async () => {
     const stored = await Promise.all((snapshot.visuals || []).map(v => getFrame(v.id)));
     const frames = stored.filter(f => f && f.meetingId === snapshot.id).sort((a, b) => a.at - b.at);
     const files = imageFiles(snapshot.title, frames);
+    for (const file of files) file.name = `スクショ/${file.name}`;
     const images = new Map(frames.map((f, i) => [f.id, files[i].name]));
     files.unshift({ name: `${safeMeetingName(snapshot.title)}_議事録.md`, data: new TextEncoder().encode(minutesDocument(snapshot, snapshot.minutes, images)) });
+    files.unshift({ name: `${safeMeetingName(snapshot.title)}_議事録.html`, data: new TextEncoder().encode(minutesHtml(snapshot, snapshot.minutes, images)) });
     download(zipImages(files), `${safeMeetingName(snapshot.title)}_議事録.zip`);
     notice('議事録・原文・保存済み画像をZIPに保存しました。');
   } catch (error) { notice(error.message); }

@@ -37,10 +37,6 @@
         <details><summary>映像の読取り記録</summary><div class="section-heading small"><span>保存したスクリーンショット</span><button id="download-images" class="text-button" disabled>画像を保存（ZIP）</button></div><img id="vision-preview" alt="最後に読み取った共有画面" hidden><div id="visuals" class="feed" aria-live="polite"></div></details>
         <details><summary>会議メモを追加</summary><p class="hint">発言を手入力して対話の文脈を確認できます。入力元は会議メモとして表示します。</p><form id="note-form"><textarea id="note" aria-label="会議メモ" placeholder="会議で確認できた発言・内容"></textarea><button class="secondary">会議記録に追加</button></form></details>
         <div class="section-heading small"><h3>途中要約</h3><button id="summarize" class="text-button">要約する</button></div><p id="summary" class="summary">会議記録がたまったら要約できます。</p>
-        <div class="section-heading small"><h3>会議終了後の議事録</h3><button id="create-minutes" class="text-button" disabled>議事録を作成・更新</button></div>
-        <p class="hint">発言を時系列に整え、文字起こし原文・未完了区間・画像の取得時刻と前後30秒の発言を一覧にします。長い会議は分割して処理します（Geminiの利用料金がかかります）。</p>
-        <button id="download-minutes" class="secondary" disabled>議事録と画像を保存（ZIP）</button>
-        <details><summary>議事録・資料一覧を確認</summary><div id="minutes" class="summary"></div></details>
       </section>
       <section class="card consultation">
         <div class="section-heading"><div><p class="eyebrow">TALK TOGETHER</p><h2>同席者に相談する</h2></div><span id="talk-badge" class="badge">静かに同席</span></div>
@@ -60,6 +56,7 @@
         </form>
       </section>
     </div>
+    <section class="card minutes-panel"><div class="section-heading"><h2>会議の議事録</h2><div class="actions"><button id="create-minutes" disabled>議事録を作成・更新</button><button id="download-minutes" class="secondary" disabled>議事録と画像を保存（ZIP）</button></div></div><p class="hint">清書を読み、必要に応じて音声原本とスクショを確認できます。清書の作成にはGeminiの利用料金がかかります。ZIPは展開してHTMLを開いてください。</p><div id="minutes" class="minutes-report"></div></section>
     <section class="card search"><h2>以前の発言を探す</h2><form id="search-form"><input id="query" aria-label="会議記録の検索語" placeholder="発言に含まれる語句"><button class="secondary">検索</button></form><div id="results"></div></section>
     <footer>記録はこのブラウザーに保存されます。文字起こし・映像の読取り・要約・音声／テキスト相談の利用時は対象の内容をGeminiへ送信します。<br>AIの利用は利用枠に応じて費用が発生します。保存した会議は終了後も相談できます。</footer>
   </main>

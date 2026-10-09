@@ -55,7 +55,7 @@ test('議事録は途中成功を保持して再開し、原文・未完了区�
   });
   await page.locator('#create-minutes').click(); await expect(page.locator('#notice')).toHaveText('一時障害');
   await page.reload(); await expect(page.locator('#minutes')).toContainText('整文結果1');
-  await page.locator('#create-minutes').click(); await expect(page.locator('#notice')).toContainText('議事録を保存'); expect(calls).toBe(3);
+  await page.locator('#create-minutes').click(); await expect(page.locator('#notice')).toContainText('清書を保存'); expect(calls).toBe(3);
   await expect(page.locator('#minutes')).toContainText('整文結果3');
   await expect(page.locator('#minutes')).toContainText('文字起こし未完了');
   const pending = page.waitForEvent('download'); await page.locator('#download-minutes').click(); const download = await pending;
@@ -67,10 +67,16 @@ test('議事録は途中成功を保持して再開し、原文・未完了区�
     const name = zip.subarray(offset + 30, offset + 30 + nameSize).toString('utf8'), start = offset + 30 + nameSize + extra;
     entries.set(name, zip.subarray(start, start + size)); offset = start + size;
   }
-  expect(entries.size).toBe(2);
+  expect(entries.size).toBe(3);
   const markdown = entries.get('企画会議_議事録.md').toString('utf8');
-  expect(markdown).toContain('整文結果1'); expect(markdown).toContain('整文結果3'); expect(markdown).toContain('予算100万円の図'); expect(markdown).toContain('対応は未確認'); expect(markdown).toContain('発言A'.repeat(4000)); expect(markdown).not.toContain('個人の相談');
-  expect(markdown).toContain('企画会議_00-00-15-000.png');
+  expect(markdown).toContain('整文結果1'); expect(markdown).toContain('整文結果3'); expect(markdown).toContain('予算100万円の図'); expect(markdown).toContain('2. 音声原本'); expect(markdown).toContain('発言A'.repeat(4000)); expect(markdown).not.toContain('個人の相談');
+  expect(entries.has('スクショ/企画会議_00-00-15-000.png')).toBe(true);
+  const html = entries.get('企画会議_議事録.html').toString('utf8'); expect(html).toContain('src="スクショ/企画会議_00-00-15-000.png"');
+  await expect(page.locator('.minutes-copy')).toHaveText('整文結果1整文結果3');
+  await page.getByRole('link', { name: '2. 音声原本', exact: true }).click();
+  await expect(page.locator('.minutes-raw pre').first()).toHaveText('発言A'.repeat(4000));
+  await page.getByRole('link', { name: '1. 清書', exact: true }).click();
+  await page.screenshot({ path: testInfo.outputPath('minutes-layout.png'), fullPage: false });
 });
 
 test('公開版の未設定時はGoogleログイン案内を表示し会議操作を隠す', async ({ page }) => {
