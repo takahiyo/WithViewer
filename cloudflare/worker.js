@@ -40,15 +40,17 @@ export function createWorker({ authorize = verifyFirebase, providerFactory = env
 }) } = {}) {
   return { async fetch(request, env) {
     const url = new URL(request.url);
-    const origin = request.headers.get('origin');
-    if ((origin && origin !== url.origin) || request.headers.get('sec-fetch-site') === 'cross-site')
-      return failure(403, '同じサイトからアクセスしてください。');
     try {
       if (!url.pathname.startsWith('/api/')) {
         // The login shell is public; meeting data and paid APIs require a verified token.
         if (!['GET', 'HEAD'].includes(request.method)) return failure(405, 'この操作は利用できません。');
         return secure(await env.ASSETS.fetch(request));
       }
+      // External links may open the public login page. Only API requests
+      // must originate from the site itself.
+      const origin = request.headers.get('origin');
+      if ((origin && origin !== url.origin) || request.headers.get('sec-fetch-site') === 'cross-site')
+        return failure(403, '同じサイトからアクセスしてください。');
       if (url.pathname === '/api/config' && request.method === 'GET') {
         return secure(Response.json({ deployment: 'cloudflare', authProvider: 'firebase', configured: false,
           firebase: publicFirebaseConfig(env), setupError: firebaseSettings(env) ? null : 'Firebaseログインの設定が未完了です。管理者に確認してください。' }));

@@ -20,6 +20,24 @@ const request = (path, jwt, body, origin = env.PUBLIC_ORIGIN) => new Request(env
     'Content-Type': 'application/json', Origin: origin }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 const authorize = (req, settings) => verifyFirebase(req, settings, keys);
 
+test('外部サイトからログイン画面を開けるが外部サイトのAPI要求は拒否する', async () => {
+  let calls = 0;
+  const worker = createWorker({ authorize, providerFactory: () => { calls++; throw new Error(); } });
+  const navigation = new Request(env.PUBLIC_ORIGIN + '/', { headers: {
+    'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document',
+    Referer: 'https://dash.cloudflare.com/'
+  } });
+  assert.equal((await worker.fetch(navigation, env)).status, 200);
+  const jwt = await token();
+  for (const path of ['/api/config', '/api/session', '/api/live-token', '/api/chat']) {
+    const crossSite = new Request(env.PUBLIC_ORIGIN + path, { headers: {
+      Authorization: `Bearer ${jwt}`, 'Sec-Fetch-Site': 'cross-site'
+    } });
+    assert.equal((await worker.fetch(crossSite, env)).status, 403);
+  }
+  assert.equal(calls, 0);
+});
+
 test('公開版は署名・期限・発行者・対象アプリ・本人メールを検証する', async () => {
   assert.equal(await authorize(request('/', await token()), env), true);
   for (const changes of [{ email: 'other@example.com' }, { iss: 'https://securetoken.google.com/wrong-project' },
