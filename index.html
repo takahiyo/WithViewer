@@ -2,8 +2,9 @@
 <html lang="ja">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>WithViewer — 静かな同席者</title></head>
 <body>
-  <header><a class="brand" href="/">WithViewer<span>静かな同席者</span></a><span id="connection" class="badge">接続を確認中</span><a id="cloud-logout" href="/cdn-cgi/access/logout" hidden>ログアウト</a></header>
-  <main>
+  <header><a class="brand" href="/">WithViewer<span>静かな同席者</span></a><span id="connection" class="badge">接続を確認中</span><button id="cloud-logout" class="text-button" hidden>ログアウト</button></header>
+  <section id="login-panel" class="card" hidden><p class="eyebrow">静かな同席者</p><h1>Googleアカウントで<br>ログイン</h1><p>ログインすると、会議の記録や同席者への相談を始められます。</p><button id="google-login">Googleでログイン</button><p id="login-status" role="status"></p></section>
+  <main id="app-main">
     <section class="intro"><p class="eyebrow">一緒に聞く。声でも、文字でも相談する。</p><h1>会議のそばに、<br>もうひとつの視点を。</h1><p>普段は静かに記録。気になることがあれば、声やチャットで相談してください。</p></section>
     <div id="notice" role="alert" hidden></div>
     <section class="setup card">

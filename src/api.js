@@ -1,5 +1,13 @@
+let getToken;
+export function setTokenProvider(provider) { getToken = provider; }
+export async function authHeaders() {
+  if (!getToken) return {};
+  const token = await getToken();
+  if (!token) throw Object.assign(new Error('Googleアカウントでログインしてください。'), { status: 401 });
+  return { Authorization: `Bearer ${token}` };
+}
 export async function post(path, body) {
-  const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+  const response = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...await authHeaders() },
     body: JSON.stringify(body), signal: AbortSignal.timeout(65000) });
   let result;
   try { result = await response.json(); }

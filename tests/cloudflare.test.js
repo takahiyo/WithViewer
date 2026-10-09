@@ -1,29 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPair, exportJWK, createLocalJWKSet, SignJWT } from 'jose';
-import { verifyAccess } from '../cloudflare/auth.js';
+import { verifyFirebase } from '../cloudflare/firebase-auth.js';
 import { createWorker } from '../cloudflare/worker.js';
 
-const env = { CF_ACCESS_TEAM_DOMAIN: 'https://example.cloudflareaccess.com', CF_ACCESS_AUD: 'a'.repeat(64),
+const env = { FIREBASE_WEB_CONFIG: JSON.stringify({ projectId: 'withviewer-test', authDomain: 'withviewer-test.firebaseapp.com', apiKey: 'public-test-key', appId: 'test-app' }),
   ALLOWED_EMAIL: 'owner@example.com', PUBLIC_ORIGIN: 'https://withviewer.pages.dev', GEMINI_API_KEY: 'test-only-key',
   ASSETS: { fetch: async () => new Response('private asset') } };
 const pair = await generateKeyPair('RS256');
 const jwk = await exportJWK(pair.publicKey); jwk.kid = 'test-key';
 const keys = createLocalJWKSet({ keys: [jwk] });
 async function token(overrides = {}, key = pair.privateKey) {
-  return new SignJWT({ email: env.ALLOWED_EMAIL, sub: 'owner', ...overrides }).setProtectedHeader({ alg: 'RS256', kid: 'test-key' })
-    .setIssuer(overrides.iss || env.CF_ACCESS_TEAM_DOMAIN).setAudience(overrides.aud || env.CF_ACCESS_AUD)
-    .setIssuedAt().setExpirationTime(overrides.exp || '5m').sign(key);
+  return new SignJWT({ email: env.ALLOWED_EMAIL, email_verified: true, sub: 'owner', auth_time: Math.floor(Date.now() / 1000), firebase: { sign_in_provider: 'google.com' }, ...overrides }).setProtectedHeader({ alg: 'RS256', kid: 'test-key' })
+    .setIssuer(overrides.iss || 'https://securetoken.google.com/withviewer-test').setAudience(overrides.aud || 'withviewer-test')
+    .setIssuedAt(overrides.iat).setExpirationTime(overrides.exp || '5m').sign(key);
 }
 const request = (path, jwt, body, origin = env.PUBLIC_ORIGIN) => new Request(env.PUBLIC_ORIGIN + path, {
-  method: body === undefined ? 'GET' : 'POST', headers: { 'Cf-Access-Jwt-Assertion': jwt || '',
+  method: body === undefined ? 'GET' : 'POST', headers: { Authorization: jwt ? `Bearer ${jwt}` : '',
     'Content-Type': 'application/json', Origin: origin }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-const authorize = (req, settings) => verifyAccess(req, settings, keys);
+const authorize = (req, settings) => verifyFirebase(req, settings, keys);
 
 test('公開版は署名・期限・発行者・対象アプリ・本人メールを検証する', async () => {
   assert.equal(await authorize(request('/', await token()), env), true);
-  for (const changes of [{ email: 'other@example.com' }, { iss: 'https://wrong.cloudflareaccess.com' },
-    { aud: 'b'.repeat(64) }, { exp: Math.floor(Date.now() / 1000) - 60 }]) {
+  for (const changes of [{ email: 'other@example.com' }, { iss: 'https://securetoken.google.com/wrong-project' },
+    { aud: 'wrong-project' }, { exp: Math.floor(Date.now() / 1000) - 60 }, { email_verified: false },
+    { firebase: { sign_in_provider: 'password' } }, { sub: '' }, { auth_time: Math.floor(Date.now() / 1000) + 60 },
+    { iat: Math.floor(Date.now() / 1000) + 60 }]) {
     assert.equal(await authorize(request('/', await token(changes)), env), false);
   }
   const attacker = await generateKeyPair('RS256');
@@ -31,15 +33,21 @@ test('公開版は署名・期限・発行者・対象アプリ・本人メー�
   assert.equal(await authorize(request('/', 'fake-token'), env), false);
 });
 
-test('ログインなし・未設定・別URLでは画面とAPIを閉じ、Geminiを呼ばない', async () => {
+test('ログイン画面だけを公開し、認証なし・未設定・別URLのAPIからGeminiを呼ばない', async () => {
   let calls = 0;
   const worker = createWorker({ authorize, providerFactory: () => { calls++; throw new Error(); } });
-  for (const path of ['/', '/assets/app.js', '/pcm-worklet.js', '/api/config', '/api/live-token']) {
+  for (const path of ['/', '/assets/app.js', '/pcm-worklet.js', '/api/config']) {
+    assert.equal((await worker.fetch(request(path), env)).status, 200);
+  }
+  for (const path of ['/api/session', '/api/live-token', '/api/transcribe', '/api/chat', '/api/observe-frame', '/api/summary']) {
     assert.equal((await worker.fetch(request(path), env)).status, 401);
   }
-  assert.equal((await worker.fetch(request('/'), {})).status, 503);
+  assert.equal((await worker.fetch(request('/api/session'), {})).status, 503);
+  const publicConfig = await (await worker.fetch(request('/api/config'), env)).text();
+  assert.equal(publicConfig.includes(env.GEMINI_API_KEY), false);
+  assert.equal(publicConfig.includes(env.ALLOWED_EMAIL), false);
   const jwt = await token();
-  assert.equal((await worker.fetch(new Request('https://preview.withviewer.pages.dev/', { headers: { 'Cf-Access-Jwt-Assertion': jwt } }), env)).status, 403);
+  assert.equal((await worker.fetch(new Request('https://preview.withviewer.pages.dev/api/session', { headers: { Authorization: `Bearer ${jwt}` } }), env)).status, 403);
   assert.equal((await worker.fetch(request('/api/chat', jwt, {}, 'https://other.example.com'), env)).status, 403);
   assert.equal(calls, 0);
 });
@@ -52,7 +60,8 @@ test('本人ログイン後の画面・設定・音声・画像・相談・Live�
   const jwt = await token();
   assert.equal(await (await worker.fetch(request('/', jwt), env)).text(), 'private asset');
   const config = await (await worker.fetch(request('/api/config', jwt), env)).json();
-  assert.equal(config.deployment, 'cloudflare'); assert.equal(config.authenticated, true);
+  assert.equal(config.deployment, 'cloudflare'); assert.equal(config.authProvider, 'firebase');
+  assert.equal((await (await worker.fetch(request('/api/session', jwt), env)).json()).authenticated, true);
   assert.equal(JSON.stringify(config).includes(env.GEMINI_API_KEY), false);
   for (const [path, body] of [
     ['/api/transcribe', { audio: 'AAAA' }], ['/api/observe-frame', { image: 'AAAA', mimeType: 'image/jpeg' }],
@@ -73,7 +82,7 @@ test('公開版も大きすぎる入力・不正JSONを拒否し、SDKの秘密�
   } } }) });
   const jwt = await token();
   const make = body => new Request(env.PUBLIC_ORIGIN + '/api/transcribe', { method: 'POST',
-    headers: { 'Cf-Access-Jwt-Assertion': jwt, 'Content-Type': 'application/json' }, body });
+    headers: { Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' }, body });
   assert.equal((await worker.fetch(make('x'.repeat(2_000_001)), env)).status, 413);
   assert.equal((await worker.fetch(make('invalid-json'), env)).status, 400);
   assert.equal((await worker.fetch(make('null'), env)).status, 400);

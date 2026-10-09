@@ -10,18 +10,18 @@
 
 ## Cloudflare Pages公開版の進捗
 
-- 本人だけが使う公開版を実装。cloudflare/worker.jsで静的画面と全APIを認証前に遮断し、cloudflare/auth.jsでCloudflare AccessのRS256署名・issuer・AUD・期限・本人メールを検証する。PUBLIC_ORIGIN以外のプレビューURL・別Originも拒否する。
-- 既存Gemini APIをcloudflare/api.jsへ共通化し、ローカルserver.jsとPages Workerの双方で使う。音声入力・保存・映像切り替えは維持する。公開版にはログアウトリンクと認証期限切れの案内を追加。
-- npm testは30件、npm run test:browserは7件成功。npm run build:pages成功。Wrangler/Workersローカルランタイムで、認証設定がない画面・設定API・文字起こしAPI・workletがすべて503となることを確認。
-- Cloudflare CLIは未認証。Pagesへの必要な権限（account:read/user:read/pages:write）に絞ってOAuthを開始。認証待ちセッション71446。公開URL、実Accessアプリ、Secret登録、実デプロイは未完了。Cloudflare上でのGemini・タブ共有・音声対話は未検証。
-- 手順はdocs/CLOUDFLARE_PAGES.md。利用者が許可した本人メールは.gitignore対象cloudflare.private.jsonに保存。APIキーはフロントエンドへ埋め込まずSecretへ設定する。
-- OAuth認証情報・ログは.gitignore対象.wrangler内に保存するnpm run cloudflareラッパーを使用する。CloudflareのPages上限時のFail closed設定と本番Accessの設定も公開前に確認する。
+- 利用者の指定に従い、Cloudflare Access方式をFirebase AuthenticationのGoogleログインへ変更。src/auth.jsはセッション単位でログインし、各API送信時にFirebase SDKから現在のIDトークンを取得する。ログアウト時は相談と録音を終了して記録を書き込む。
+- cloudflare/firebase-auth.jsでGoogle公開証明書を使ったRS256署名・issuer・プロジェクト・期限・発行時刻・Google認証・確認済みメール・許可メールを検証。画面と公開Firebase設定のみ認証前に配信し、会議API・Liveトークンは認証が必要。PUBLIC_ORIGIN以外のAPIを拒否する。
+- npm testは31件、npm run test:browserは9件、npm run build:pages成功。未ログインUI・Firebase初期化・API送信停止を追加し、既存音声・映像・保存機能を確認。Wranglerランタイムで画面・公開設定・workletは200、認証設定未完了の会議APIは503を確認。ビルドへのキー混入も検査済み。実際のGoogleログインと公開版Geminiは未検証。
+- 利用者はGit連携でPagesをデプロイ済み。旧版にはログイン設定未完了の表示があった。新しい環境変数FIREBASE_WEB_CONFIG・ALLOWED_EMAIL・PUBLIC_ORIGIN・GEMINI_API_KEYの登録と再デプロイが必要。本番はmain、開発はdev。Googleプロバイダー有効化と正式URLの承認済みドメイン設定も公開時に確認する。
+- 手順はdocs/CLOUDFLARE_PAGES.md。受領したFirebase Web公開設定と本人メール・正式URLは.gitignore対象cloudflare.private.jsonに保存。Analyticsは使用しない。Geminiキーはサーバー側Secretのみ。
+- OAuth認証情報・ログは.gitignore対象.wrangler内に保存するnpm run cloudflareラッパーを使用。認証を扱うWorkerの上限時はFail closedに設定する。
 - 担当：Codex
 - 計画：[DEVELOPMENT_PLAN.md](DEVELOPMENT_PLAN.md)
 - 状態：ローカルWeb検証版の実装・自動検証完了／実音声の受け入れ試験待ち。
 - 作業場所：E:\Local_Storage\GitHub\WithViewer
-- Git状態：Gitリポジトリではない。基準コミット・ブランチなし。コミット・push・公開は未実施。
-- 共有状態：ローカル保存のみ。
+- Git状態：main/devをGitHubへ初回アップロード済み。現在の開発ブランチはdev。本番mainへの追加反映は利用者の依頼時に行う。
+- 共有状態：ソースはGitHubに保存。会議記録の保存はブラウザー内のみ。
 
 ## 完了済み
 

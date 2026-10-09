@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { createApi, apiError } from './api.js';
-import { accessSettings, verifyAccess } from './auth.js';
+import { firebaseSettings, publicFirebaseConfig, verifyFirebase } from './firebase-auth.js';
 
 function secure(response) {
   const headers = new Headers(response.headers);
@@ -35,31 +35,34 @@ async function readBody(request) {
   } catch { throw Object.assign(new Error(), { status: 400, clientMessage: 'JSONの形式が不正です。' }); }
 }
 
-export function createWorker({ authorize = verifyAccess, providerFactory = env => new GoogleGenAI({
+export function createWorker({ authorize = verifyFirebase, providerFactory = env => new GoogleGenAI({
   apiKey: env.GEMINI_API_KEY, httpOptions: { apiVersion: 'v1beta', timeout: 60000 }
 }) } = {}) {
   return { async fetch(request, env) {
-    // Every route, including assets and preview URLs, requires verified Access identity.
-    if (!accessSettings(env)) return failure(503, '公開版のログイン設定が未完了です。管理者に確認してください。');
     const url = new URL(request.url);
-    if (url.origin !== env.PUBLIC_ORIGIN) return failure(403, '設定された公開URLからアクセスしてください。');
-    if (!await authorize(request, env)) return failure(401, 'ログインが必要です。公開URLを開き直してログインしてください。');
     const origin = request.headers.get('origin');
     if ((origin && origin !== url.origin) || request.headers.get('sec-fetch-site') === 'cross-site')
       return failure(403, '同じサイトからアクセスしてください。');
     try {
       if (!url.pathname.startsWith('/api/')) {
+        // The login shell is public; meeting data and paid APIs require a verified token.
         if (!['GET', 'HEAD'].includes(request.method)) return failure(405, 'この操作は利用できません。');
         return secure(await env.ASSETS.fetch(request));
       }
+      if (url.pathname === '/api/config' && request.method === 'GET') {
+        return secure(Response.json({ deployment: 'cloudflare', authProvider: 'firebase', configured: false,
+          firebase: publicFirebaseConfig(env), setupError: firebaseSettings(env) ? null : 'Firebaseログインの設定が未完了です。管理者に確認してください。' }));
+      }
+      if (!firebaseSettings(env)) return failure(503, 'Firebaseログインの設定が未完了です。管理者に確認してください。');
+      if (url.origin !== env.PUBLIC_ORIGIN) return failure(403, '設定された公開URLからアクセスしてください。');
+      if (!await authorize(request, env)) return failure(401, 'ログインの期限が切れているか、このGoogleアカウントには利用権限がありません。');
+      if (url.pathname === '/api/session' && request.method === 'GET')
+        return secure(Response.json({ configured: !!env.GEMINI_API_KEY, authenticated: true }));
       const provider = env.GEMINI_API_KEY ? providerFactory(env) : null;
       const api = createApi({ provider, liveModel: env.GEMINI_LIVE_MODEL || 'gemini-3.8-live',
         transcribeModel: env.GEMINI_TRANSCRIBE_MODEL || 'gemini-3.8-flash' });
       const body = request.method === 'POST' ? await readBody(request) : undefined;
       const response = await api.handle(url.pathname, request.method, body);
-      if (url.pathname === '/api/config' && response.ok) {
-        return secure(Response.json({ ...await response.json(), deployment: 'cloudflare', authenticated: true }));
-      }
       return secure(response);
     } catch (error) { return secure(apiError(error)); }
   } };

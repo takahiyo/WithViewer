@@ -1,6 +1,29 @@
 import { test, expect } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 
+test('公開版の未設定時はGoogleログイン案内を表示し会議操作を隠す', async ({ page }) => {
+  await page.route('**/api/config', route => route.fulfill({ json: { authProvider: 'firebase', firebase: null, setupError: 'Firebaseログインの設定が未完了です。' } }));
+  await page.goto('/');
+  await expect(page.locator('#login-panel')).toBeVisible();
+  await expect(page.locator('#app-main')).toBeHidden();
+  await expect(page.locator('#google-login')).toBeDisabled();
+  await expect(page.locator('#login-status')).toContainText('設定が未完了');
+});
+
+test('公開版はFirebaseを初期化し未ログインなら会議APIを送信しない', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  let apiCalls = 0;
+  await page.route('**/api/session', route => { apiCalls++; return route.fulfill({ status: 401, json: {} }); });
+  await page.route('**/api/config', route => route.fulfill({ json: { authProvider: 'firebase', firebase: {
+    apiKey: 'public-test-key', projectId: 'withviewer-test', appId: 'test-app', authDomain: 'withviewer-test.firebaseapp.com'
+  } } }));
+  await page.goto('/');
+  await expect(page.locator('#login-status')).toContainText('Googleアカウントでログインしてください。');
+  await expect(page.locator('#google-login')).toBeEnabled();
+  await expect(page.locator('#app-main')).toBeHidden();
+  expect(apiCalls).toBe(0); expect(errors).toEqual([]);
+});
+
 async function syntheticMedia(page) {
   await page.addInitScript(() => {
     function audioStream() {

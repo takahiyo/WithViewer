@@ -276,7 +276,15 @@ window.addEventListener('beforeunload', event => {
 async function initialize() {
   try {
     const response = await fetch('/api/config'); if (!response.ok) throw new Error(response.status === 401 ? 'ログインが必要です。ページを開き直してログインしてください。' : 'サーバー設定を確認できません。'); config = await response.json();
-    $('cloud-logout').hidden = config.deployment !== 'cloudflare';
+    if (config.authProvider === 'firebase') {
+      $('app-main').hidden = true; $('login-panel').hidden = false; $('connection').textContent = 'ログイン待ち';
+      if (!config.firebase || config.setupError) { $('google-login').disabled = true; $('login-status').textContent = config.setupError || 'Firebaseの設定を確認してください。'; return; }
+      const { prepareGoogleLogin } = await import('./auth.js');
+      const session = await prepareGoogleLogin(config.firebase, { loginButton: $('google-login'), logoutButton: $('cloud-logout'),
+        status: $('login-status'), beforeLogout: async () => { await live.stop(); await stopRecording(); await ingest; await writes; } });
+      if (!session) return;
+      config.configured = session.configured; $('app-main').hidden = false; $('login-panel').hidden = true;
+    }
     $('connection').textContent = config.configured ? 'Gemini 接続準備済み' : 'APIキー未設定';
     $('connection').className = `badge ${config.configured ? 'active' : 'warn'}`;
     meetings = await listMeetings();
