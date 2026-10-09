@@ -43,6 +43,8 @@ Git連携のPages設定は次のとおりです。
 
 ビルドコマンドが空欄だとdistが生成されず失敗します。通常の`npm run build`はWorkerを作らないため、Pagesには使用しません。
 
+Firebase SDKの要件に合わせ、.node-versionでNode.js 24.19.0を指定しています。過去のデプロイの再実行はその過去のコミットを使うため、最新devコミットのビルドが完了したことを確認してください。ログ先頭のHEADのコミットで確認できます。
+
 ```powershell
 npm ci
 npm test
