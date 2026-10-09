@@ -11,6 +11,28 @@ export function publicFirebaseConfig(env) {
   } catch { return null; }
 }
 
+export function firebaseSetupError(env) {
+  if (!env.FIREBASE_WEB_CONFIG) return 'Cloudflareのプレビュー環境にFIREBASE_WEB_CONFIGを登録し、再デプロイしてください。';
+  let value;
+  try { value = JSON.parse(env.FIREBASE_WEB_CONFIG); }
+  catch { return 'FIREBASE_WEB_CONFIGがJSONとして読み取れません。値には{から}までのJSONだけを登録してください。'; }
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    return 'FIREBASE_WEB_CONFIGにはJSONオブジェクトを登録してください。JSON全体を引用符で囲まないでください。';
+  if (!publicFirebaseConfig(env)) {
+    const fields = ['apiKey', 'authDomain', 'projectId', 'appId'];
+    const missing = fields.filter(field => typeof value[field] !== 'string' || !value[field]);
+    return missing.length ? `FIREBASE_WEB_CONFIGに${missing.join('・')}がありません。FirebaseのWeb設定を確認してください。`
+      : 'FIREBASE_WEB_CONFIGのprojectIdまたはauthDomainの形式を確認してください。';
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(env.ALLOWED_EMAIL || ''))
+    return 'CloudflareのALLOWED_EMAILに、許可するメールアドレスを空白なしで登録してください。';
+  try {
+    const origin = new URL(env.PUBLIC_ORIGIN);
+    if (origin.protocol === 'https:' && origin.origin === env.PUBLIC_ORIGIN) return null;
+  } catch {}
+  return 'CloudflareのPUBLIC_ORIGINにhttps://から始まる公開URLを登録してください。末尾の/やパスは付けません。';
+}
+
 export function firebaseSettings(env) {
   const config = publicFirebaseConfig(env);
   if (!config || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(env.ALLOWED_EMAIL || '')) return null;

@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { createApi, apiError } from './api.js';
-import { firebaseSettings, publicFirebaseConfig, verifyFirebase } from './firebase-auth.js';
+import { firebaseSettings, firebaseSetupError, publicFirebaseConfig, verifyFirebase } from './firebase-auth.js';
 
 function secure(response) {
   const headers = new Headers(response.headers);
@@ -53,7 +53,7 @@ export function createWorker({ authorize = verifyFirebase, providerFactory = env
         return failure(403, '同じサイトからアクセスしてください。');
       if (url.pathname === '/api/config' && request.method === 'GET') {
         return secure(Response.json({ deployment: 'cloudflare', authProvider: 'firebase', configured: false,
-          firebase: publicFirebaseConfig(env), setupError: firebaseSettings(env) ? null : 'Firebaseログインの設定が未完了です。管理者に確認してください。' }));
+          firebase: publicFirebaseConfig(env), setupError: firebaseSetupError(env) }));
       }
       if (!firebaseSettings(env)) return failure(503, 'Firebaseログインの設定が未完了です。管理者に確認してください。');
       if (url.origin !== env.PUBLIC_ORIGIN) return failure(403, '設定された公開URLからアクセスしてください。');

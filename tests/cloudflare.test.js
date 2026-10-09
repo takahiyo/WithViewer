@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPair, exportJWK, createLocalJWKSet, SignJWT } from 'jose';
-import { verifyFirebase } from '../cloudflare/firebase-auth.js';
+import { verifyFirebase, firebaseSetupError } from '../cloudflare/firebase-auth.js';
 import { createWorker } from '../cloudflare/worker.js';
 
 const env = { FIREBASE_WEB_CONFIG: JSON.stringify({ projectId: 'withviewer-test', authDomain: 'withviewer-test.firebaseapp.com', apiKey: 'public-test-key', appId: 'test-app' }),
@@ -19,6 +19,17 @@ const request = (path, jwt, body, origin = env.PUBLIC_ORIGIN) => new Request(env
   method: body === undefined ? 'GET' : 'POST', headers: { Authorization: jwt ? `Bearer ${jwt}` : '',
     'Content-Type': 'application/json', Origin: origin }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 const authorize = (req, settings) => verifyFirebase(req, settings, keys);
+
+test('未設定と不正JSONと不足項目を区別し、設定の値はエラーへ漏らさない', () => {
+  assert.equal(firebaseSetupError(env), null);
+  assert.match(firebaseSetupError({}), /FIREBASE_WEB_CONFIGを登録/);
+  assert.match(firebaseSetupError({ ...env, FIREBASE_WEB_CONFIG: 'const firebaseConfig = {secret};' }), /JSONとして読み取れません/);
+  assert.match(firebaseSetupError({ ...env, FIREBASE_WEB_CONFIG: JSON.stringify(env.FIREBASE_WEB_CONFIG) }), /JSONオブジェクト/);
+  assert.match(firebaseSetupError({ ...env, FIREBASE_WEB_CONFIG: '{"apiKey":"secret"}' }), /authDomain・projectId・appId/);
+  assert.match(firebaseSetupError({ ...env, ALLOWED_EMAIL: 'invalid-private-value' }), /ALLOWED_EMAIL/);
+  assert.match(firebaseSetupError({ ...env, PUBLIC_ORIGIN: env.PUBLIC_ORIGIN + '/' }), /PUBLIC_ORIGIN/);
+  assert.equal(firebaseSetupError({ ...env, ALLOWED_EMAIL: 'invalid-private-value' }).includes('invalid-private-value'), false);
+});
 
 test('外部サイトからログイン画面を開けるが外部サイトのAPI要求は拒否する', async () => {
   let calls = 0;
