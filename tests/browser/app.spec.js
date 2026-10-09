@@ -1,6 +1,53 @@
 import { test, expect } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 import { readFile } from 'node:fs/promises';
+import { meetingArchive } from '../../src/meeting-archive.js';
+import { build } from 'esbuild';
+
+test('Drive会議一式ZIPを復元し、再読込み後も原音声・画像を取得して未変換音声を再試行できる', async ({ page }) => {
+  await page.route('**/api/config', route => route.fulfill({ json: { configured: true } }));
+  await page.goto('/'); await expect(page.locator('#title')).toHaveValue('新しい会議');
+  const source = { id: 'backup-source', title: 'Drive復元試験', createdAt: '2026-10-09T00:00:00Z', endedAt: '2026-10-09T00:01:00Z', segments: [{ id: 'raw', source: 'meeting', start: 0, end: 10, text: '原文を保持', status: 'done' }, { id: 'retry', source: 'meeting', start: 10, end: 20, text: '', status: 'failed' }], consultations: [{ source: 'consultation', role: 'user', text: '別の相談' }], visuals: [{ id: 'image', source: 'meeting-visual', at: 5, text: '図の説明' }], minutes: { format: 2, parts: ['清書の文章'] }, summary: { text: '保存した要約', through: 20 } };
+  const archive = await meetingArchive(source, [{ id: 'raw', start: 0, end: 10, rate: 16000, blob: new Blob(['raw-original']) }, { id: 'retry', start: 10, end: 20, rate: 16000, blob: new Blob(['retry-original']) }], [{ id: 'image', at: 5, mimeType: 'image/png', image: 'AQID' }]);
+  await page.locator('#import').setInputFiles({ name: archive.name, mimeType: 'application/zip', buffer: Buffer.from(await archive.blob.arrayBuffer()) });
+  await expect(page.locator('#notice')).toContainText('音声2件・画像1枚'); await expect(page.locator('#title')).toHaveValue(source.title);
+  await expect(page.locator('#meetings option')).toHaveCount(2);
+  await page.reload(); await page.locator('#meetings').selectOption({ label: source.title }); await expect(page.locator('#title')).toHaveValue(source.title); await expect(page.locator('#minutes')).toContainText('清書の文章'); await expect(page.locator('#summary')).toContainText('保存した要約');
+  const restored = await page.evaluate(async () => {
+    const db = await new Promise(resolve => { const r = indexedDB.open('withviewer'); r.onsuccess = () => resolve(r.result); });
+    const all = store => new Promise(resolve => { const r = db.transaction(store).objectStore(store).getAll(); r.onsuccess = () => resolve(r.result); });
+    const audio = await all('audio'), frames = await all('frames'), meetings = await all('meetings'); db.close();
+    return { audio: await Promise.all(audio.map(async a => ({ id: a.id, text: await a.blob.text(), meetingId: a.meetingId }))), frames, meeting: meetings.find(m => m.title === 'Drive復元試験') };
+  });
+  expect(restored.audio.map(a => a.text).sort()).toEqual(['raw-original', 'retry-original']);
+  expect(restored.frames[0].image).toBe('AQID'); expect(restored.frames[0].id).toBe(restored.meeting.visuals[0].id);
+  expect(restored.audio.find(a => a.text === 'retry-original').id).toBe(restored.meeting.segments[1].id);
+  expect(restored.meeting.id).not.toBe('backup-source');
+  let received = false;
+  await page.route('**/api/transcribe', route => { received = true; expect(route.request().postDataJSON().audio).toBe(Buffer.from('retry-original').toString('base64')); return route.fulfill({ json: { text: '復元音声を変換' } }); });
+  await page.locator('#retry-all').click(); await expect(page.locator('#segments')).toContainText('復元音声を変換'); expect(received).toBe(true);
+});
+
+test('復元の保存失敗は会議・音声・画像の全書込みを取り消し既存原本を守る', async ({ page }) => {
+  const storage = (await build({ entryPoints: ['src/storage.js'], bundle: true, format: 'esm', write: false })).outputFiles[0].text;
+  await page.route('**/storage-test.js', route => route.fulfill({ contentType: 'text/javascript', body: storage }));
+  await page.goto('/'); await expect(page.locator('#title')).toBeVisible();
+  const result = await page.evaluate(async () => {
+    const { saveAudio, restoreArchive, listMeetings, getAudio, getFrame } = await import('/storage-test.js');
+    await saveAudio({ id: 'collision', meetingId: 'existing', blob: new Blob(['protected']) });
+    let rejected = false;
+    try { await restoreArchive({ meeting: { id: 'should-not-exist' }, audio: [{ id: 'new-audio', blob: new Blob(['new']) }, { id: 'collision', blob: new Blob(['overwrite']) }], frames: [{ id: 'new-image' }] }); } catch { rejected = true; }
+    return { rejected, partial: (await listMeetings()).some(m => m.id === 'should-not-exist'), audio: !!await getAudio('new-audio'), image: !!await getFrame('new-image'), original: await (await getAudio('collision')).blob.text() };
+  });
+  expect(result).toEqual({ rejected: true, partial: false, audio: false, image: false, original: 'protected' });
+});
+
+test('ポリシーと規約はログイン前から開けて運営者とデータの取扱いを表示する', async ({ page }) => {
+  await page.route('**/api/config', route => route.fulfill({ json: { authProvider: 'firebase', firebase: null, setupError: '未設定' } }));
+  await page.goto('/'); await expect(page.getByRole('link', { name: 'プライバシーポリシー', exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'プライバシーポリシー', exact: true }).click(); await expect(page.locator('h1')).toHaveText('プライバシーポリシー'); await expect(page.locator('main')).toContainText('Flateight'); await expect(page.locator('main')).toContainText('drive.file');
+  await page.getByRole('link', { name: '利用規約', exact: true }).click(); await expect(page.locator('h1')).toHaveText('利用規約'); await expect(page.locator('main')).toContainText('問い合わせ先：準備中');
+});
 
 async function seedReportMeeting(page, texts = ['', '', '']) {
   await page.route('**/api/config', route => route.fulfill({ json: { configured: true } }));

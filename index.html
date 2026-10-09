@@ -12,7 +12,7 @@
       <label class="title-field">会議の名前<input id="title" maxlength="120" value="新しい会議"></label>
       <button id="new" class="secondary">新しい会議</button>
       <button id="export" class="secondary">記録を書き出す</button>
-      <button id="import-button" class="secondary">記録を読み込む</button><input id="import" type="file" accept="application/json,.json" hidden>
+      <button id="import-button" class="secondary">記録を読み込む</button><input id="import" type="file" accept="application/json,.json,application/zip,.zip" hidden>
     </section>
     <details class="card drive-settings"><summary>Google Driveへの自動保存</summary><p>会議一式（記録・相談履歴・音声・スクショ・作成済み議事録）を指定フォルダへ保存します。</p><div class="actions"><button id="drive-connect" class="secondary" disabled>Google Driveを接続</button><button id="drive-folder" class="secondary" disabled>保存先フォルダを選ぶ</button><button id="drive-disconnect" class="text-button" disabled>連携を解除</button></div><p>保存先：<span id="drive-folder-name">未選択</span></p><div class="actions"><label>新しいフォルダ名<input id="drive-new-folder-name" maxlength="200" placeholder="例：WithViewer 会議記録"></label><label>作成する場所<select id="drive-new-folder-parent"><option value="root">マイドライブ直下</option><option value="selected">現在の保存先フォルダ内</option></select></label><button id="drive-create-folder" class="secondary" disabled>作成して保存先にする</button></div><label><input type="checkbox" id="drive-auto" disabled>会議終了時に自動保存する</label><button id="drive-save" class="secondary" disabled>今すぐ保存</button><p id="drive-status" role="status">公開版のGoogleログイン後に設定できます。</p><p class="hint">自動保存はこのブラウザーの設定です。保存完了までページを開いてください。清書は「議事録を作成・更新」で作成します。</p></details>
     <div class="panels">
@@ -61,6 +61,7 @@
     <section class="card search"><h2>以前の発言を探す</h2><form id="search-form"><input id="query" aria-label="会議記録の検索語" placeholder="発言に含まれる語句"><button class="secondary">検索</button></form><div id="results"></div></section>
     <footer>記録はこのブラウザーに保存されます。文字起こし・映像の読取り・要約・音声／テキスト相談の利用時は対象の内容をGeminiへ送信します。<br>AIの利用は利用枠に応じて費用が発生します。保存した会議は終了後も相談できます。</footer>
   </main>
+  <nav class="legal-links" aria-label="運営情報"><a href="/privacy.html">プライバシーポリシー</a> · <a href="/terms.html">利用規約</a> · 運営：Flateight</nav>
   <script type="module" src="/src/app.js"></script>
 </body>
 </html>

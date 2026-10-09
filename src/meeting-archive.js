@@ -25,6 +25,6 @@ export async function meetingArchive(meeting, audio, frames) {
   // Even before AI clean-copy creation, the HTML retains raw text and images.
   addText(`${name}_議事録.html`, minutesHtml(snapshot, snapshot.minutes || { format: 2, parts: [] }, images));
   addText(`${name}_議事録.md`, minutesDocument(snapshot, snapshot.minutes || { format: 2, parts: [] }, images));
-  addText('保存内容.txt', '会議の記録JSON（相談履歴・要約・作成済み清書を含む）、議事録HTML・Markdown、音声/ の元の録音WAV、スクショ/ の元の保存画像をまとめています。\nJSONだけをアプリに読み込んでも音声・画像本体は復元しません。原本ファイルとJSON内archiveの対応表を残してください。\n清書を未作成の場合は音声原本とスクショを保存します。文字起こしや清書が後から完成すると、自動保存設定が有効でページが開いている間は同じDriveファイルを更新します。\n');
+  addText('保存内容.txt', '会議の記録JSON（相談履歴・要約・作成済み清書を含む）、議事録HTML・Markdown、音声/ の元の録音WAV、スクショ/ の元の保存画像をまとめています。\nJSONだけをアプリに読み込んでも音声・画像本体は復元しません。音声・画像も復元する場合は、解凍せずZIPのまま「記録を読み込む」で選択してください。原本が元からない記録は復元後に不足として表示します。\n清書を未作成の場合は音声原本とスクショを保存します。文字起こしや清書が後から完成すると、自動保存設定が有効でページが開いている間は同じDriveファイルを更新します。\n');
   return { blob: zipImages(files), name: `${name}_${snapshot.createdAt.slice(0, 10)}_会議一式.zip`, manifest };
 }

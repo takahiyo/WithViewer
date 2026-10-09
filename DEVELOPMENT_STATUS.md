@@ -4,10 +4,14 @@
 
 ## Google Driveの会議一式自動保存
 
+- 追記：利用者から実Drive保存成功の報告あり。会議一式ZIPの読込みで会議・相談・要約・清書・原音声・全保存画像を復元できるようにした。新しい会議・原本IDに置換し、Drive保存ファイルIDは持ち込まない。元からない原本は不足として通知。破損ZIP・対応表の欠落を拒否し、IndexedDBは全体を一括保存して失敗時にロールバックする。600MB以内の元の非圧縮UTF-8 ZIP対応、Drive一覧からの直接復元は未実装。
+- 最新検証：単体54件・ブラウザー18件成功、Pagesビルド成功。ZIPの原本復元、再読込み後の音声再試行、保存失敗時の全体ロールバック、ログイン前の規約閲覧を確認。
+- Flateightのプライバシーポリシー・利用規約を公開静的ページとして準備。問い合わせ先はユーザーが後から用意するエイリアス待ちで「準備中」。課金状態・一般公開・販売条件を捏造せず開発版と明記。docs/PUBLIC_RELEASE.mdに公開前の未確定事項を記載。
+
 - 公開版にDrive接続・Google Pickerによる保存先選択・終了時自動保存・手動一括保存を追加。会議JSON、相談、要約、作成済み清書、HTML/Markdown、音声/ の全録音区間、スクショ/ の全保存画像と対応表を会議ごとのZIPにする。
 - 終了後の文字起こし・清書・相談の変更も同じDriveファイルへ更新。送信間隔30秒、再送2・5・15秒の最大3回。切断時は受信位置を確認。無関係なファイルを上書きせず、失敗でもローカル原本を削除しない。ZIPは音声・画像合計512MBまで。
 - Firebase認証後にDriveの追加認可を行い、本人メールを照合。drive.file限定、PKCE/state、暗号化HttpOnly Cookieで長期認可を保存。保存時にトークンを更新し、音声・画像ZIPはブラウザーからGoogleへ直接送る。
-- 初回のGoogle Cloud/Cloudflare設定はdocs/GOOGLE_DRIVE.md。GOOGLE_DRIVE_CLIENT_ID・GOOGLE_DRIVE_CLIENT_SECRET・GOOGLE_DRIVE_PICKER_API_KEY・DRIVE_TOKEN_SECRETが必要。実アカウント接続・実Drive保存は未検証。保存先設定は端末・ブラウザー・公開URLごとで、ページ終了後の保存やZIP全体のアプリ内復元は未実装。
+- 初回のGoogle Cloud/Cloudflare設定はdocs/GOOGLE_DRIVE.md。GOOGLE_DRIVE_CLIENT_ID・GOOGLE_DRIVE_CLIENT_SECRET・GOOGLE_DRIVE_PICKER_API_KEY・DRIVE_TOKEN_SECRETが必要。実Drive保存は利用者から成功報告あり。開発側は代替Google応答で検証。保存先設定は端末・ブラウザー・公開URLごとで、ページ終了後の保存・Drive一覧からの直接読込みは未実装。
 - 検証：単体49件・ブラウザー14件成功。代替Google応答と合成音声・画像で、原本ZIP、認可更新、別アカウント拒否、アップロード再開、同一ファイル更新、失敗時の手動再試行を確認した。
 - 一般公開は相談段階。現状のALLOWED_EMAIL本人限定を解除する前に、複数ユーザー認可、端末データのユーザー別分離、サーバー側利用量制限と課金権限の実装が必要。
 

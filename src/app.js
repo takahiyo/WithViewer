@@ -1,6 +1,6 @@
 import './style.css';
 import { newMeeting, addObservation, addConsultation, textChatPayload, evidence, searchMeeting, timeLabel, validateBackup } from './core.js';
-import { saveMeeting, listMeetings, saveAudio, getAudio, meetingAudio, saveFrame, getFrame } from './storage.js';
+import { saveMeeting, listMeetings, saveAudio, getAudio, meetingAudio, saveFrame, getFrame, restoreArchive } from './storage.js';
 import { capture, SampleChunks, pcm16, wav, base64 } from './audio.js';
 import { Consultation } from './live.js';
 import { post } from './api.js';
@@ -10,15 +10,17 @@ import { retryDelay } from './transcription-retry.js';
 import { MINUTES_FORMAT, minutesBatches, minutesFingerprint, minutesDocument } from './minutes.js';
 import { minutesBody, minutesHtml, MINUTES_CSS } from './minutes-layout.js';
 import { createDriveBackup } from './drive.js';
+import { importMeetingArchive, ARCHIVE_LIMIT } from './meeting-import.js';
 
 const $ = id => document.getElementById(id);
 let meeting, meetings = [], config = { configured: false }, recorder = null, recording = false, recordBusy = false;
 let sampleChunks, savedSeconds = 0, ingest = Promise.resolve(), writes = Promise.resolve(), processing = false, queue = [];
 let summaryBusy = false, chatBusy = false;
 let imageExportBusy = false;
+let importBusy = false;
 let minutesBusy = false, retryCancel = null, retryStatus = '', pauseReason = '';
 let lastMinutesView = '';
-const drive = createDriveBackup({ currentMeeting: () => meeting, saveTarget: persist, canConfigure: () => !recording && !recordBusy, onBusy: () => renderControls() });
+const drive = createDriveBackup({ currentMeeting: () => meeting, saveTarget: persist, canConfigure: () => !importBusy && !recording && !recordBusy, onBusy: () => renderControls() });
 const reportStyle = document.createElement('style'); reportStyle.textContent = MINUTES_CSS; document.head.append(reportStyle);
 let transcriptionPaused = false;
 const PAUSED_TRANSCRIPTION = 'API上限のため文字起こしを一時停止しています。録音音声は保存しています。';
@@ -51,16 +53,16 @@ const vision = new VisualObserver({
 function renderControls() {
   $('download-images').disabled = imageExportBusy || !meeting?.visuals?.length;
   $('download-images').textContent = imageExportBusy ? '画像をまとめています…' : '画像を保存（ZIP）';
-  const busy = recording || recordBusy || processing || queue.length || live.state !== 'idle' || summaryBusy || chatBusy || vision.busy || minutesBusy || drive.busy;
+  const busy = importBusy || recording || recordBusy || processing || queue.length || live.state !== 'idle' || summaryBusy || chatBusy || vision.busy || minutesBusy || drive.busy;
   $('new').disabled = !!busy; $('meetings').disabled = !!busy; $('import').disabled = !!busy; $('import-button').disabled = !!busy;
-  $('record').disabled = recording || recordBusy || minutesBusy || drive.busy; $('stop-record').disabled = !recording || recordBusy;
-  $('title').disabled = minutesBusy; $('note-form').querySelector('button').disabled = minutesBusy;
-  $('talk').disabled = !config.configured || live.state !== 'idle' || chatBusy; $('stop-talk').disabled = live.state !== 'active';
-  $('send-chat').disabled = !config.configured || chatBusy || ['connecting', 'stopping'].includes(live.state);
-  $('chat-message').disabled = !config.configured || chatBusy;
+  $('record').disabled = importBusy || recording || recordBusy || minutesBusy || drive.busy; $('stop-record').disabled = !recording || recordBusy;
+  $('title').disabled = importBusy || minutesBusy; $('note-form').querySelector('button').disabled = importBusy || minutesBusy;
+  $('talk').disabled = importBusy || !config.configured || live.state !== 'idle' || chatBusy; $('stop-talk').disabled = live.state !== 'active';
+  $('send-chat').disabled = importBusy || !config.configured || chatBusy || ['connecting', 'stopping'].includes(live.state);
+  $('chat-message').disabled = importBusy || !config.configured || chatBusy;
   $('send-chat').textContent = chatBusy ? '回答を待っています…' : '送信';
   $('chat-status').textContent = chatBusy ? '会議記録を踏まえて回答しています。' : '';
-  $('summarize').disabled = !config.configured || summaryBusy || !meeting?.segments.some(s => s.status === 'done' && s.text);
+  $('summarize').disabled = importBusy || !config.configured || summaryBusy || !meeting?.segments.some(s => s.status === 'done' && s.text);
   $('record-badge').textContent = recordBusy ? '準備・保存中' : recording ? '記録中' : '待機中';
   $('record-badge').className = `badge ${recording ? 'active' : ''}`;
   $('talk-badge').textContent = live.state === 'active' ? '対話中' : live.state === 'idle' ? '静かに同席' : '接続処理中';
@@ -68,16 +70,16 @@ function renderControls() {
   document.querySelector('.consultation').classList.toggle('live', live.state === 'active');
   $('pending').textContent = `文字起こし ${meeting?.segments.filter(s => s.status === 'pending').length || 0}件待ち`;
   $('transcription-status').textContent = retryStatus || (transcriptionPaused ? pauseReason || PAUSED_TRANSCRIPTION : '');
-  $('retry-all').disabled = !config.configured || processing || minutesBusy || !meeting?.segments.some(s => s.status === 'failed' && !s.kind);
-  $('create-minutes').disabled = !config.configured || minutesBusy || recording || recordBusy || processing || !meeting?.segments.some(s => s.status === 'done' && s.text && !s.kind);
+  $('retry-all').disabled = importBusy || !config.configured || processing || minutesBusy || !meeting?.segments.some(s => s.status === 'failed' && !s.kind);
+  $('create-minutes').disabled = importBusy || !config.configured || minutesBusy || recording || recordBusy || processing || !meeting?.segments.some(s => s.status === 'done' && s.text && !s.kind);
   $('create-minutes').textContent = minutesBusy ? '議事録を作成しています…' : '議事録を作成・更新';
   $('download-minutes').disabled = minutesBusy || imageExportBusy || !meeting?.minutes;
   $('resume-transcription').hidden = !transcriptionPaused;
   $('resume-transcription').disabled = processing;
   drive.render();
   $('record-time').textContent = timeLabel(savedSeconds);
-  $('vision-enabled').disabled = !config.configured;
-  $('read-frame').disabled = !config.configured || !vision.available || vision.busy;
+  $('vision-enabled').disabled = importBusy || !config.configured;
+  $('read-frame').disabled = importBusy || !config.configured || !vision.available || vision.busy;
   $('vision-status').textContent = `${vision.busy ? '映像を読取り中' : vision.enabled ? '映像オン' : '映像オフ'} · 読取り送信 ${vision.sent}枚（このページ）`;
   $('vision-preview').hidden = !latestFrame;
   if (latestFrame && $('vision-preview').dataset.frame !== latestFrame.id) {
@@ -368,12 +370,26 @@ $('download-images').onclick = async () => {
 };
 $('import-button').onclick = () => $('import').click();
 $('import').onchange = async () => {
+  if (importBusy) return;
+  importBusy = true; renderControls();
   try {
     const file = $('import').files[0]; if (!file) return;
-    if (file.size > 5_000_000) throw new Error('記録ファイルは5MB以内にしてください。');
-    const imported = validateBackup(JSON.parse(await file.text())); meetings.push(imported); selectMeeting(imported); await persist(); notice('会議記録と相談履歴を読み込みました。JSONには録音音声は含まれません。');
+    if (/\.zip$/i.test(file.name) || file.type === 'application/zip') {
+      if (file.size > ARCHIVE_LIMIT) throw new Error('会議一式ZIPは600MB以内にしてください。');
+      notice('会議一式ZIPを確認し、音声と画像を復元しています…');
+      const restored = await importMeetingArchive(file);
+      await writes; await restoreArchive(restored);
+      meetings.push(restored.meeting); selectMeeting(restored.meeting);
+      const missing = restored.missingAudio + restored.missingImages;
+      notice(`会議記録・音声${restored.audio.length}件・画像${restored.frames.length}枚を新しい会議として復元しました。${missing ? `バックアップに原本がない記録が${missing}件あります。` : ''}`);
+    } else {
+      if (file.size > 5_000_000) throw new Error('記録JSONは5MB以内にしてください。');
+      const imported = validateBackup(JSON.parse(await file.text()));
+      await writes; await saveMeeting(imported);
+      meetings.push(imported); selectMeeting(imported); notice('会議記録と相談履歴を読み込みました。JSONには音声・画像本体は含まれません。');
+    }
   } catch (error) { notice(error.message); }
-  finally { $('import').value = ''; }
+  finally { $('import').value = ''; importBusy = false; renderControls(); }
 };
 $('download-audio').onclick = async () => {
   try {
@@ -387,7 +403,7 @@ $('download-audio').onclick = async () => {
   } catch (error) { notice(error.message); }
 };
 window.addEventListener('beforeunload', event => {
-  if (recording || recordBusy || processing || live.state !== 'idle' || chatBusy || vision.busy || minutesBusy || drive.busy || drive.pending) { event.preventDefault(); event.returnValue = ''; }
+  if (importBusy || recording || recordBusy || processing || live.state !== 'idle' || chatBusy || vision.busy || minutesBusy || drive.busy || drive.pending) { event.preventDefault(); event.returnValue = ''; }
 });
 
 async function initialize() {
