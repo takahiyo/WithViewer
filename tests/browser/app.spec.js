@@ -46,7 +46,7 @@ test('ポリシーと規約はログイン前から開けて運営者とデー�
   await page.route('**/api/config', route => route.fulfill({ json: { authProvider: 'firebase', firebase: null, setupError: '未設定' } }));
   await page.goto('/'); await expect(page.getByRole('link', { name: 'プライバシーポリシー', exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'プライバシーポリシー', exact: true }).click(); await expect(page.locator('h1')).toHaveText('プライバシーポリシー'); await expect(page.locator('main')).toContainText('Flateight'); await expect(page.locator('main')).toContainText('drive.file');
-  await page.getByRole('link', { name: '利用規約', exact: true }).click(); await expect(page.locator('h1')).toHaveText('利用規約'); await expect(page.locator('main')).toContainText('問い合わせ先：準備中');
+  await page.getByRole('link', { name: '利用規約', exact: true }).click(); await expect(page.locator('h1')).toHaveText('利用規約'); await expect(page.getByRole('link', { name: 'withviewer@flateight.jp' })).toHaveAttribute('href', 'mailto:withviewer@flateight.jp');
 });
 
 async function seedReportMeeting(page, texts = ['', '', '']) {
